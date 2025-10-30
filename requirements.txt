@@ -1,0 +1,5 @@
+control
+streamlit
+streamlit_option_menu
+pyserial
+streamlit_extras
