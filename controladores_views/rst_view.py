@@ -30,7 +30,7 @@ def rst_Controller_Interface():
 
             # Implementação MIMO pendente
                 st.info("Implementação MIMO Incremental pendente.")
-                rst_incremental_mimo_form()
+                # st_incremental_mimo_form()
 
         # 3. RST Adaptativo (Será implementado depois, por enquanto vazio)
 
@@ -40,7 +40,7 @@ def rst_Controller_Interface():
 
     with graphics_col:
 
-         plot_chart_validation(control_signal_2_dataframe, x = 'Time (s)', y = 'Control Signal 2',height=200)
+        # plot_chart_validation(control_signal_2_dataframe, x = 'Time (s)', y = 'Control Signal 2',height=200)
 
         y_max = get_session_variable('saturation_max_value')
         y_min = get_session_variable('saturation_min_value')
@@ -50,10 +50,10 @@ def rst_Controller_Interface():
             st.subheader('Resposta do Sistema')
             plot_chart_validation(process_output_dataframe, x = 'Time (s)', y = ['Reference','Process Output'],height=500)
 
-            altair_plot_chart_validation(process_output_dataframe,
-                                          y_max = y_max,y_min = y_min,
-                                          x_column = 'Time (s)', y_column = ['Reference','Process Output'],
-                                          )    
+            #altair_plot_chart_validation(process_output_dataframe,
+                                        #  y_max = y_max,y_min = y_min,
+                                        #  x_column = 'Time (s)', y_column = ['Reference','Process Output'],
+                                        #  )    
 
         st.subheader('Sinal de Controle')
         if get_session_variable('control_signal_1'):
@@ -62,10 +62,9 @@ def rst_Controller_Interface():
          
             plot_chart_validation(control_signal_1_dataframe, x = 'Time (s)', y = 'Control Signal 1',height=200)
 
-                altair_plot_chart_validation(control_signal_1_dataframe,control= True,
-
+            # APAGUE OS ESPAÇOS A MAIS DA LINHA SEGUINTE:
+            altair_plot_chart_validation(control_signal_1_dataframe,control= True,
                                          y_max = y_max,y_min = y_min,
-
                                          x_column = 'Time (s)', y_column = 'Control Signal 1',
                                          height=250)
 
@@ -98,11 +97,11 @@ def rst_incremental_siso_tab_form():
     help_text = 'Valores decimais como **0.9** ou **0.1, 0.993**. Para múltiplos valores, vírgula é necessário.'
     st.write(' **Função de Transferência do Modelo (B/A):**')
 
-    # ... (Inputs para Numerador B e Denominador A)
+ # ... (Inputs para Numerador B e Denominador A)
     num_coeff = st.text_input('Coeficientes do **Numerador B** :',key='rst_inc_num_coeff',help=help_text,placeholder='b0, b1, ...')
-       coefficients_validations(num_coeff)
+    coefficients_validations(num_coeff)  # <--- CORRIGIDO
     den_coeff = st.text_input('Coeficientes do **Denominador A** :',key='rst_inc_den_coeff',help=help_text,placeholder='1, a1, a2, ...')
-    coefficients_validations(den_coeff)
+    coefficients_validations(den_coeff)  # <--- CORRIGIDO
     st.write('**Constante de Tempo de malha fechada desejada (tau):**')
 
     # Input para a constante de tempo de malha fechada (tau)
