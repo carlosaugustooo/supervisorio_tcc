@@ -147,20 +147,16 @@ def rst_incremental_siso_tab_form():
             siso_change_ref_instant2 = st.number_input(
                 'Instante da referência 2 (s):', value=calculate_time_limit()/2,step=1.0, min_value=0.0, max_value=siso_change_ref_instant3, key='siso_change_ref_instant2')
        
-    rst_inc_tau_mf = float(st.text_input(
-
-                'Constante de Tempo de Malha Fechada ($\\tau$)',value="0.9", key='rst_inc_tau_mf'))
 
     if st.button('Iniciar', type='primary', key='rst_inc_siso_button'):
        
         if reference_number == 'Única':
         
-            rstControlProcessIncrementalSISO(transfer_function_type, num_coeff, den_coeff, tau_ml_input, rst_single_reference)
+            rstControlProcessIncrementalSISO(transfer_function_type, num_coeff, den_coeff, tau_ml_input, rst_inc_single_reference, None, None, None, None)
       
-
         elif reference_number == 'Múltiplas':
 
-           rstControlProcessIncrementalSISO(transfer_function_type,num_coeff,den_coeff,rst_inc_tau_ml, rst_inc_siso_multiple_reference1, rst_inc_siso_multiple_reference2, rst_inc_siso_multiple_reference3, siso_change_ref_instant2,siso_change_ref_instant3)
+           rstControlProcessIncrementalSISO(transfer_function_type,num_coeff,den_coeff,tau_ml_input, rst_inc_siso_multiple_reference1, rst_inc_siso_multiple_reference2, rst_inc_siso_multiple_reference3, siso_change_ref_instant2,siso_change_ref_instant3)
         
 def imc_mimo_tab_form():
 
