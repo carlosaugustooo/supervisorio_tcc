@@ -119,6 +119,16 @@ def rst_incremental_siso_tab_form():
         key = 'rst_inc_tau_ml'
     )
 
+    # --- INÍCIO DA ADIÇÃO ---
+    st.write('**Estrutura do Controlador (Sintonia PID via RST):**')
+    pid_structure = st.selectbox(
+        'Selecione a estrutura de controle:',
+        ('RST Incremental Puro', 'I + PD', 'PI + D', 'PID Ideal', 'PID Paralelo'),
+        key='rst_pid_structure',
+        help='Selecione a lei de controle. As estruturas PID usam os parâmetros RST (s0, s1, t0) para calcular os ganhos.'
+    )
+    # --- FIM DA ADIÇÃO ---
+
     delay_checkbox_col, delay_input_col = st.columns(2)
     with delay_checkbox_col:
         delay_checkbox=st.checkbox('Atraso de Transporte?')
@@ -167,13 +177,16 @@ def rst_incremental_siso_tab_form():
         if reference_number == 'Única':
         
             rstControlProcessIncrementalSISO(transfer_function_type, num_coeff, den_coeff, tau_ml_input, 
+                                     pid_structure,  # <-- NOVO PARÂMETRO
                                      rst_inc_single_reference,    # rst_single_reference
                                      rst_inc_single_reference,    # rst_siso_multiple_reference2
                                      rst_inc_single_reference)
       
         elif reference_number == 'Múltiplas':
 
-           rstControlProcessIncrementalSISO(transfer_function_type,num_coeff,den_coeff,tau_ml_input, rst_inc_siso_multiple_reference1, rst_inc_siso_multiple_reference2, rst_inc_siso_multiple_reference3, siso_change_ref_instant2,siso_change_ref_instant3)
+           rstControlProcessIncrementalSISO(transfer_function_type,num_coeff,den_coeff,tau_ml_input, 
+                                     pid_structure,  # <-- NOVO PARÂMETRO
+                                     rst_inc_siso_multiple_reference1, rst_inc_siso_multiple_reference2, rst_inc_siso_multiple_reference3, siso_change_ref_instant2,siso_change_ref_instant3)
         
 def imc_mimo_tab_form():
 

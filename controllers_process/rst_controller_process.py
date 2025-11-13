@@ -13,6 +13,7 @@ def rstControlProcessIncrementalSISO(transfer_function_type:str,
                                      num_coeff:str, # Polinômio B
                                      den_coeff:str, # Polinômio A
                                      tau_ml_input:float, # Constante de Tempo de Malha Fechada (tau_mf)
+                                     pid_structure:str, # <-- NOVO PARÂMETRO
                                      rst_single_reference:float,
                                      rst_siso_multiple_reference2:float, 
                                      rst_siso_multiple_reference3:float,
@@ -50,6 +51,9 @@ def rstControlProcessIncrementalSISO(transfer_function_type:str,
         process_output = zeros(samples_number)
         delta_control_signal = zeros(samples_number) # du(k)
         manipulated_variable_1 = zeros(samples_number) # u(k)
+        # --- INÍCIO DA ADIÇÃO ---
+        e = zeros(samples_number) # Erro e(k)
+        # --- FIM DA ADIÇÃO ---
         
         # Geração da Referência
         instant_sample_2 = get_sample_position(sampling_time, samples_number, change_ref_instant2)
@@ -69,7 +73,7 @@ def rstControlProcessIncrementalSISO(transfer_function_type:str,
         if max_pot is None or min_pot is None:
             st.error("FALHA (Back-end): Valores de Saturação (Máx/Mín) não definidos. Configure-os na Sidebar.")
             return
-# --- FIM DA CORREÇÃO ---
+        # --- FIM DA CORREÇÃO ---
 
         # --- CÁLCULO DOS COEFICIENTES RST ---
         
@@ -93,6 +97,23 @@ def rstControlProcessIncrementalSISO(transfer_function_type:str,
         s1 = -(a1 * r0) / b0
         t0 = s0 + s1
         
+        # --- INÍCIO DA ADIÇÃO (Linhas 97-109) ---
+        # Parâmetros PID derivados do RST (para 1ª ordem)
+        # sampling_time é pego da sessão (Linha 32)
+        
+        kc = -s1
+        ki_rst = t0  # Este é o ki da fórmula RST (t0)
+        
+        # Evita divisão por zero se t0 ou kc forem 0
+        if ki_rst == 0 or kc == 0:
+            st.error(f"FALHA (Back-end): Parâmetros RST (t0={ki_rst}, s1={-kc}) causam divisão por zero no cálculo do PID.")
+            return
+
+        # Parâmetros PID
+        ti = (kc * sampling_time) / ki_rst
+        td = 0.0 # O seu exemplo usa td=0. Você pode tornar isso um input no futuro.
+        # --- FIM DA ADIÇÃO ---
+
         # --- LIMPEZA DE ESTADO DE SESSÃO ---
         
         set_session_controller_parameter('control_signal_1', dict())
@@ -123,21 +144,83 @@ def rstControlProcessIncrementalSISO(transfer_function_type:str,
                 if kk == 0: 
                     manipulated_variable_1[kk] = 0.0
                     sendToArduino(arduinoData, '0')
+                    # --- INÍCIO DA ADIÇÃO ---
+                    e[kk] = reference_input[kk] - process_output[kk]
+                    # --- FIM DA ADIÇÃO ---
 
                 # 3. Lógica de Controle (k >= 1)
                 elif kk >= 1: 
                     
-                    # LEI DE CONTROLE RST INCREMENTAL
-                    ref_term = (t0 / r0) * reference_input[kk]
+                    # --- CÁLCULO DE VARIÁVEIS COMUNS ---
+                    ts = sampling_time
+                    e[kk] = reference_input[kk] - process_output[kk] # e(k)
                     
-                    output_term = (s0 / r0) * process_output[kk] + \
-                                  (s1 / r0) * process_output[kk-1]
+                    # --- LÓGICA DE CONTROLE BASEADA NA ESTRUTURA ---
                     
-                    delta_control_signal[kk] = ref_term - output_term
+                    if pid_structure == 'RST Incremental Puro':
+                        # LEI DE CONTROLE RST INCREMENTAL (Original)
+                        ref_term = (t0 / r0) * reference_input[kk]
+                        output_term = (s0 / r0) * process_output[kk] + \
+                                      (s1 / r0) * process_output[kk-1]
+                        
+                        delta_control_signal[kk] = ref_term - output_term
+                        manipulated_variable_1[kk] = manipulated_variable_1[kk-1] + delta_control_signal[kk]
+
+                    # --- ESTRUTURAS PID (I+PD, PI+D, Ideal, Paralelo) ---
+                    # Todas estas estruturas precisam de valores passados (k-1, k-2)
+                    # Vamos tratar k=1 como um caso especial, e a lógica principal só roda em k >= 2
+
+                    elif kk == 1: 
+                        # Não temos e(k-2) ou y(k-2), então apenas seguramos o controle
+                        manipulated_variable_1[kk] = manipulated_variable_1[kk-1]
+                        delta_control_signal[kk] = 0.0
                     
-                    # Sinal de Controle Total: u(k) = u(k-1) + du(k)
-                    manipulated_variable_1[kk] = manipulated_variable_1[kk-1] + delta_control_signal[kk]
+                    elif kk >= 2:
+                        # Variáveis comuns para k >= 2
+                        e_k = e[kk]
+                        e_k1 = e[kk-1]
+                        # e_k2 = e[kk-2] # (Não é usado se td=0)
+                        y_k = process_output[kk]
+                        y_k1 = process_output[kk-1]
+                        # y_k2 = process_output[kk-2] # (Não é usado se td=0)
+
+                        delta_u = 0.0 # Inicializa
+
+                        if pid_structure == 'I + PD':
+                            # Fórmula: u(k) = u(k-1) + kc*((e(k)*ts)/ti - y(k) + y(k-1)) (com td=0)
+                            termo_I = (e_k * ts) / ti
+                            termo_P = -y_k
+                            termo_D = y_k1
+                            delta_u = kc * (termo_I + termo_P + termo_D)
+
+                        elif pid_structure == 'PI + D':
+                            # Fórmula: u(k) = u(k-1) + kc*((1+ts/ti)*e(k) - e(k-1)) (com td=0)
+                            termo_PI_1 = (1.0 + ts / ti) * e_k
+                            termo_PI_2 = -e_k1
+                            delta_u = kc * (termo_PI_1 + termo_PI_2)
+                        
+                        elif pid_structure == 'PID Ideal':
+                            # Fórmula: u(k) = u(k-1) + kc*(1 + ts/ti)*e(k) - kc*e(k-1) (com td=0)
+                            termo_q0 = kc * (1.0 + ts / ti) * e_k
+                            termo_q1 = -kc * e_k1
+                            delta_u = termo_q0 + termo_q1
+                            
+                        elif pid_structure == 'PID Paralelo':
+                            # Fórmula: delta_u = Kp*(e(k) - e(k-1)) + Ki*ts*e(k)
+                            # Kp = kc, Ki = ki_rst (t0), Kd = 0
+                            termo_P = kc * (e_k - e_k1)
+                            termo_I = ki_rst * ts * e_k
+                            delta_u = termo_P + termo_I
+                        
+                        else:
+                            delta_u = 0.0 # Estrutura desconhecida, não faz nada
+                        
+                        # Aplica a lei de controle
+                        manipulated_variable_1[kk] = manipulated_variable_1[kk-1] + delta_u
+                        delta_control_signal[kk] = delta_u
                     
+                    # --- FIM DA ALTERAÇÃO ---
+                
                 
                 # 4. SATURAÇÃO E SERIAL WRITE
                 
@@ -177,5 +260,3 @@ def imcControlProcessTISO(transfer_function_type:str,num_coeff_1:str,den_coeff_1
 
     st.warning("Função TISO (IMC) não implementada neste ficheiro.")
     pass
-
- 
