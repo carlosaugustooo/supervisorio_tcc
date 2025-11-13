@@ -1,9 +1,15 @@
 import streamlit as st
 from formatterInputs import *
 from connections import *
+from session_state import *
 from controllers_process.validations_functions import *
 from controllers_process.rst_controller_process import rstControlProcessIncrementalSISO,imcControlProcessTISO
 
+# Esta função faltava e causaria um NameError.
+def calculate_time_limit():
+    sim_time = get_session_variable('simulation_time')
+    return sim_time if sim_time is not None else 60.0 # Retorna 60s como padrão
+# -----------------------------------------------
 def rst_Controller_Interface():
     st.header('Regulador de Alocação de Polos (RST)')
     graphics_col, rst_config_col = st.columns([0.7, 0.3])

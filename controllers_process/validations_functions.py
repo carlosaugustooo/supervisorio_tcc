@@ -132,7 +132,7 @@ def string2floatArray(input_numbers_str:str) -> list[float] | float:
     Split the input string into an array of numbers
     '''
     if ',' in input_numbers_str:
-        return [float(num.strip()) for num in input_numbers_str.split(',')]
+        return [float(num.strip()) for num in input_numbers_str.split(',') if num.strip()]
     else:
         return float(input_numbers_str)
     
@@ -145,6 +145,9 @@ def iae_metric_validation():
         return None
     
     previous_iae_metric = get_session_variable('iae_metric')
+    if previous_iae_metric is None:
+        previous_iae_metric = 0.0
+        
     iae_metric = integrated_absolute_error()
     delta_iae = iae_metric-previous_iae_metric
     st.session_state.controller_parameters['iae_metric'] = iae_metric
@@ -157,13 +160,20 @@ def tvc1_validation():
         return None
     
     previous_tvc1= get_session_variable('tvc_1_metric')
+    if previous_tvc1 is None:
+        previous_tvc1 = 0.0
+        
     total_variation_control_1 = total_variation_control('control_signal_1')
     delta_tvc1 = total_variation_control_1-previous_tvc1
     st.session_state.controller_parameters['tvc_1_metric'] = total_variation_control_1
      
     if not get_session_variable('control_signal_2'):
         return st.metric('Total Variation Control 1 (TVC)', f'{total_variation_control_1:.2f}',delta=f'{delta_tvc1:.3f}',delta_color='inverse')
+        
     previous_tvc2= get_session_variable('tvc_2_metric')
+    if previous_tvc2 is None:
+        previous_tvc2 = 0.0
+        
     total_variation_control_2 = total_variation_control('control_signal_2')
     delta_tvc2 = total_variation_control_2-previous_tvc2
     st.session_state.controller_parameters['tvc_2_metric'] = total_variation_control_1

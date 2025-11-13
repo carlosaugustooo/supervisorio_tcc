@@ -5,7 +5,7 @@ from numpy import exp, ones, zeros, array, dot, convolve
 from connections import *
 from datetime import datetime
 # CORRIGIDO: Importar as duas funções de session_state
-from session_state import get_session_variable, set_session_controller_parameter 
+from session_state import get_session_variable
 from controllers_process.validations_functions import *
 
 
@@ -19,21 +19,17 @@ def rstControlProcessIncrementalSISO(transfer_function_type:str,
                                      change_ref_instant2 = 1, 
                                      change_ref_instant3 = 1):
     
-    # 1. Limpa o erro anterior a cada nova execução
-    set_session_controller_parameter('debug_error', None)
 
     # --- VALIDAÇÕES COM MENSAGEM DE ERRO PERSISTENTE ---
     if num_coeff == '':
-        set_session_controller_parameter('debug_error', 'FALHA (Back-end): Coeficientes do Numerador B estão vazios.')
-        return 
+        return st.error('FALHA (Back-end): Coeficientes do Numerador B estão vazios')
     
     if den_coeff =='':
-        set_session_controller_parameter('debug_error', 'FALHA (Back-end): Coeficientes do Denominador A estão vazios.')
-        return
+        return st.error('FALHA (Back-end): Coeficientes do Denominador A estão vazios.')
 
     if 'arduinoData' not in st.session_state.connected:
-        set_session_controller_parameter('debug_error', 'FALHA (Back-end): Arduino não conectado. Conecte na Sidebar primeiro.')
-        return
+        return st.error('FALHA (Back-end): Arduino não conectado. Conecte na Sidebar primeiro')
+
 
     st.info("Validação OK. Iniciando cálculos do RST...")
     
@@ -70,8 +66,8 @@ def rstControlProcessIncrementalSISO(transfer_function_type:str,
         
         # Validação para o modelo de 1ª ordem discreta (como assumido pelo MATLAB):
         if A_coeff_all.size < 2 or B_coeff_all.size < 1:
-            # ERRO PERSISTENTE:
-            set_session_controller_parameter('debug_error', f'FALHA (Back-end): O modelo (A={A_coeff_all}, B={B_coeff_all}) não é de 1ª ordem. Verifique os inputs.')
+            # ERRO CORRIGIDO (Padrão GMV):
+            st.error(f'FALHA (Back-end): O modelo (A={A_coeff_all}, B={B_coeff_all}) não é de 1ª ordem. Verifique os inputs.')
             return
             
         a1 = A_coeff_all[1] # Coeficiente a1 (do A(z^-1))
@@ -153,16 +149,12 @@ def rstControlProcessIncrementalSISO(transfer_function_type:str,
         sendToArduino(arduinoData, '0')
 
     except NameError as e:
-        # ERRO PERSISTENTE:
-        set_session_controller_parameter('debug_error', f"Erro de Nome (Back-end): Variável faltando na importação ou no escopo. Detalhe: {e}")
-        try: sendToArduino(arduinoData, '0') 
-        except: pass
+        # ERRO CORRIGIDO (Padrão GMV):
+        st.error(f"Erro de Nome (Back-end): Variável faltando na importação ou no escopo. Detalhe: {e}")
         
     except Exception as e:
-        # ERRO PERSISTENTE:
-        set_session_controller_parameter('debug_error', f"Erro Inesperado durante o Processamento RST. O loop falhou. Detalhe: {e}")
-        try: sendToArduino(arduinoData, '0') 
-        except: pass
+        # ERRO CORRIGIDO (Padrão GMV):
+        st.error(f"Erro Inesperado durante o Processamento RST. O loop falhou. Detalhe: {e}")
 
 # 
 # --- FUNÇÃO MIMO (COPIADA DO IMC) ---
