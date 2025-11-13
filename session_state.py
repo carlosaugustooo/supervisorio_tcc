@@ -113,3 +113,31 @@ def set_session_controller_parameter(controller_parameter:str, new_data) ->None:
     """
     st.session_state.controller_parameters[controller_parameter] = new_data
    
+   # --- ADICIONE ESTAS FUNÇÕES AO FINAL DE session_state.py ---
+
+def set_session_variable(key: str, value):
+    """
+    Define uma variável no st.session_state (nível raiz).
+    """
+    st.session_state[key] = value
+
+def clear_session_variable(key: str):
+    """
+    Remove uma variável do st.session_state se ela existir.
+    """
+    if key in st.session_state:
+        del st.session_state[key]
+
+def set_session_controller_parameter(key: str, value):
+    """
+    Função crucial que o RST e o IMC usam para guardar dados.
+    """
+    # Garante que o dicionário existe
+    if 'controller_parameters' not in st.session_state:
+        st.session_state['controller_parameters'] = {}
+        
+    st.session_state.controller_parameters[key] = value
+    
+    # Se for um erro, guarda também no nível raiz para a interface ver
+    if key == 'debug_error':
+        set_session_variable(key, value)

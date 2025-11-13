@@ -158,7 +158,10 @@ def rst_incremental_siso_tab_form():
        
         if reference_number == 'Única':
         
-            rstControlProcessIncrementalSISO(transfer_function_type, num_coeff, den_coeff, tau_ml_input, rst_inc_single_reference, None, None, None, None)
+            rstControlProcessIncrementalSISO(transfer_function_type, num_coeff, den_coeff, tau_ml_input, 
+                                     rst_inc_single_reference,    # rst_single_reference
+                                     rst_inc_single_reference,    # rst_siso_multiple_reference2
+                                     rst_inc_single_reference)
       
         elif reference_number == 'Múltiplas':
 

@@ -5,7 +5,7 @@ from numpy import exp, ones, zeros, array, dot, convolve
 from connections import *
 from datetime import datetime
 # CORRIGIDO: Importar as duas funções de session_state
-from session_state import get_session_variable
+from session_state import *
 from controllers_process.validations_functions import *
 
 
@@ -29,6 +29,14 @@ def rstControlProcessIncrementalSISO(transfer_function_type:str,
 
     if 'arduinoData' not in st.session_state.connected:
         return st.error('FALHA (Back-end): Arduino não conectado. Conecte na Sidebar primeiro')
+        
+    # Validação para o erro 'NoneType'
+    sampling_time = get_session_variable('sampling_time')
+    samples_number = get_session_variable('samples_number')
+
+    if sampling_time is None or samples_number is None:
+        st.error("FALHA (Back-end): Tempo de amostragem (Ts) ou Quantidade de amostras (N) não definidos. Configure-os na Sidebar.")
+        return
 
 
     st.info("Validação OK. Iniciando cálculos do RST...")
@@ -36,9 +44,6 @@ def rstControlProcessIncrementalSISO(transfer_function_type:str,
     # 2. TRY/EXCEPT PARA CAPTURAR ERROS DE LÓGICA
     try:
         # --- SETUP E INICIALIZAÇÕES ---
-
-        sampling_time = get_session_variable('sampling_time')
-        samples_number = get_session_variable('samples_number')
         arduinoData = st.session_state.connected['arduinoData']
 
         # Condições Iniciais
@@ -59,6 +64,12 @@ def rstControlProcessIncrementalSISO(transfer_function_type:str,
         # Saturação
         max_pot = get_session_variable('saturation_max_value')
         min_pot = get_session_variable('saturation_min_value')
+
+        # Validação para o erro 'NoneType' na Saturação
+        if max_pot is None or min_pot is None:
+            st.error("FALHA (Back-end): Valores de Saturação (Máx/Mín) não definidos. Configure-os na Sidebar.")
+            return
+# --- FIM DA CORREÇÃO ---
 
         # --- CÁLCULO DOS COEFICIENTES RST ---
         
@@ -164,110 +175,7 @@ def imcControlProcessTISO(transfer_function_type:str,num_coeff_1:str,den_coeff_1
                           imc_multiple_reference1:float, imc_multiple_reference2:float, imc_multiple_reference3:float,
                           change_ref_instant2 = 1, change_ref_instant3 = 1):
 
-    if num_coeff_1 == '':
-        return st.error('Coeficientes incorretos no Numerador 1.')
-    
-    if den_coeff_1 =='':
-        return st.error('Coeficientes incorretos no Denominador 1.')
-    
-    if num_coeff_2 == '':
-        return st.error('Coeficientes incorretos no Numerador 2.')
-    
-    if den_coeff_2 =='':
-        return st.error('Coeficientes incorretos no Denominador 2.')
+    st.warning("Função TISO (IMC) não implementada neste ficheiro.")
+    pass
 
-    sampling_time = get_session_variable('sampling_time')
-    samples_number = get_session_variable('samples_number')
-    process_output = zeros(samples_number)
-    model_output_1 = zeros(samples_number)
-    model_output_2 = zeros(samples_number)
-    erro1 = zeros(samples_number)
-    erro2 = zeros(samples_number)
-    output_model_comparation_1 = zeros(samples_number)
-    output_model_comparation_2 = zeros(samples_semples_number)
-    instant_sample_2 = get_sample_position(sampling_time, samples_number, change_ref_instant2)
-    instant_sample_3 = get_sample_position(sampling_time, samples_number, change_ref_instant3)
-    reference_input = imc_multiple_reference1*ones(samples_number)
-    reference_input[instant_sample_2:instant_sample_3] = imc_multiple_reference2
-    reference_input[instant_sample_3:] = imc_multiple_reference3
-    st.session_state.controller_parameters['reference_input'] = reference_input.tolist()
-    max_pot = get_session_variable('saturation_max_value')
-    min_pot = get_session_variable('saturation_min_value')
-    manipulated_variable_1 = zeros(samples_number)
-    manipulated_variable_2 = zeros(samples_number)
-    motors_power_packet = "0,0"
-    A_coeff_1, B_coeff_1 = convert_tf_2_discrete(num_coeff_1,den_coeff_1,transfer_function_type)
-    A_order = len(A_coeff_1)-1
-    B_order = len(B_coeff_1) 
-    A_coeff_2, B_coeff_2 = convert_tf_2_discrete(num_coeff_2,den_coeff_2,transfer_function_type)
-    tau_mf1 = imc_mr_tau_mf1
-    alpha1 = exp(-sampling_time/tau_mf1)
-    tau_mf2 = imc_mr_tau_mf2
-    alpha2 = exp(-sampling_time/tau_mf2)
-    alpha_delta_1 = [1,-alpha1]
-    B_delta_1 = convolve(B_coeff_1,alpha_delta_1)
-    alpha_delta_2 = [1,-alpha2]
-    B_delta_2 = convolve(B_coeff_2,alpha_delta_2)
-    arduinoData = st.session_state.connected['arduinoData']
-    set_session_controller_parameter('control_signal_1', dict())
-    control_signal_1 = get_session_variable('control_signal_1')
-    set_session_controller_parameter('control_signal_2', dict())
-    control_signal_2 = get_session_variable('control_signal_2')
-    set_session_controller_parameter('process_output_sensor', dict())
-    process_output_sensor = get_session_variable('process_output_sensor')
-    start_time = time.time()
-    kk = 0
-    progress_text = "Operation in progress. Please wait."
-    my_bar = st.progress(0, text=progress_text)
-    sendToArduino(arduinoData, '0,0')
-
-    while kk < samples_number:
-        current_time = time.time()
-        if current_time - start_time > sampling_time:
-            start_time = current_time
-            process_output[kk] = readFromArduino(arduinoData)
-            
-            if kk <= A_order:
-                sendToArduino(arduinoData, '0,0')
-                
-            elif kk == 1 and A_order == 1:
-                model_output_1[kk] = dot(-A_coeff_1[1:], model_output_1[kk-1::-1]) + dot(B_coeff_1, manipulated_variable_1[kk-1::-1])
-                model_output_2[kk] = dot(-A_coeff_2[1:], model_output_2[kk-1::-1]) - dot(B_coeff_2, manipulated_variable_2[kk-1::-1])
-                output_model_comparation_1[kk] = process_output[kk] - model_output_1[kk]
-                output_model_comparation_2[kk] = -(process_output[kk] - model_output_2[kk])
-                erro1[kk] = reference_input[kk] - output_model_comparation_1[kk]
-                erro2[kk] = -(reference_input[kk] + output_model_comparation_2[kk])
-                manipulated_variable_1[kk] = dot(-B_delta_1[1:],manipulated_variable_1[kk-1::-1]) + (1-alpha1)*dot(A_coeff_1,erro1[kk::-1])
-                manipulated_variable_1[kk] /= B_delta_1[0]
-                manipulated_variable_2[kk] = dot(-B_delta_2[1:],manipulated_variable_2[kk-1::-1]) + (1-alpha2)*dot(A_coeff_2,erro2[kk::-1])
-                manipulated_variable_2[kk] /= B_delta_2[0]
-                
-            elif kk > A_order:
-                model_output_1[kk] = dot(-A_coeff_1[1:], model_output_1[kk-1:kk-A_order-1:-1]) + dot(B_coeff_1, manipulated_variable_1[kk-1:kk-B_order-1:-1])
-                model_output_2[kk] = dot(-A_coeff_2[1:], model_output_2[kk-1:kk-A_order-1:-1]) - dot(B_coeff_2, manipulated_variable_2[kk-1:kk-B_order-1:-1])
-                output_model_comparation_1[kk] = process_output[kk] - model_output_1[kk]
-                output_model_comparation_2[kk] = -(process_output[kk] - model_output_2[kk])
-                erro1[kk] = reference_input[kk] - output_model_comparation_1[kk]
-                erro2[kk] = -(reference_input[kk] + output_model_comparation_2[kk])
-                manipulated_variable_1[kk] = dot(-B_delta_1[1:],manipulated_variable_1[kk-1:kk-B_order-1:-1]) + (1-alpha1)*dot(A_coeff_1,erro1[kk:kk-A_order-1:-1])
-                manipulated_variable_1[kk] = manipulated_variable_1[kk]/B_delta_1[0]
-                manipulated_variable_2[kk] = dot(-B_delta_2[1:],manipulated_variable_2[kk-1:kk-B_order-1:-1])+ (1-alpha2)*dot(A_coeff_2,erro2[kk:kk-A_order-1:-1])
-                manipulated_variable_2[kk] = manipulated_variable_2[kk]/B_delta_2[0]
-                
-            manipulated_variable_1[kk] = max(min_pot, min(manipulated_variable_1[kk], max_pot))
-            manipulated_variable_2[kk] = max(min_pot, min(manipulated_variable_2[kk], max_pot))
-        
-            motors_power_packet = f"{manipulated_variable_1[kk]},{manipulated_variable_2[kk]}\r"
-            sendToArduino(arduinoData, motors_power_packet)
-            
-            current_timestamp = datetime.now()
-            process_output_sensor[str(current_timestamp)] = float(process_output[kk])
-            control_signal_1[str(current_timestamp)] = float(manipulated_variable_1[kk])
-            control_signal_2[str(current_timestamp)] = float(manipulated_variable_2[kk])
-            kk += 1
-
-            percent_complete = kk / (samples_number)
-            my_bar.progress(percent_complete, text=progress_text)
-            
-    # Turn off the motor
-    sendToArduino(arduinoData, '0,0')
+ 
