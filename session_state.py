@@ -43,7 +43,10 @@ def loadSessionStates():
         
     if 'tvc_2_metric' not in st.session_state.controller_parameters:
         st.session_state.controller_parameters['tvc_2_metric'] = 0
-    
+    # --- ADICIONE ESTE BLOCO ---
+    if 'simulation_time' not in st.session_state.controller_parameters:
+        st.session_state.controller_parameters['simulation_time'] = 100.0 # Define um padrão
+    # --- FIM DO BLOCO ---
 
 session_list = [
         "samples_number",
@@ -72,7 +75,8 @@ def get_session_variable(variable:str)-> dict|float:
         "reference_input",
         "saturation_max_value",
         "saturation_min_value",
-        "process_output_sensor"
+        "process_output_sensor",
+        "simulation_time"
     Returns:
     dict
     """
@@ -90,6 +94,8 @@ def get_session_variable(variable:str)-> dict|float:
         "iae_metric":               st.session_state.controller_parameters['iae_metric'],
         "tvc_1_metric":             st.session_state.controller_parameters['tvc_1_metric'],
         "tvc_2_metric":             st.session_state.controller_parameters['tvc_2_metric'],
+        # --- ADICIONE ESTA LINHA ---
+        "simulation_time":      st.session_state.controller_parameters['simulation_time']
     }
     
     return session_variable[variable]

@@ -149,11 +149,19 @@ def rst_incremental_siso_tab_form():
             siso_change_ref_instant3 = st.number_input(
                 'Instante da referência 3 (s):', value=calculate_time_limit()*3/4, step=0.1, min_value=0.0, max_value=calculate_time_limit(), key='siso_change_ref_instant3')
 
+        # CORREÇÃO: Delete todos os espaços antes desta linha 
+        # e aperte TAB (ou espaço 8x) para alinhá-la com o "with" acima.
         with changeReferenceCol1:
+            # O valor default (value=) ...
+            default_instante_2 = siso_change_ref_instant3 / 2.0
+            
             siso_change_ref_instant2 = st.number_input(
-                'Instante da referência 2 (s):', value=calculate_time_limit()/2,step=1.0, min_value=0.0, max_value=siso_change_ref_instant3, key='siso_change_ref_instant2')
-       
-
+                'Instante da referência 2 (s):', 
+                value=default_instante_2, 
+                step=1.0, 
+                min_value=0.0, 
+                max_value=siso_change_ref_instant3, 
+                key='siso_change_ref_instant2')
     if st.button('Iniciar', type='primary', key='rst_inc_siso_button'):
        
         if reference_number == 'Única':
