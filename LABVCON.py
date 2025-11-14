@@ -1,15 +1,18 @@
 from controladores_views.controller_imports import (
+    gmv_Controller_Interface,
+    gpc_Controller_Interface,
+    imc_Controller_Interface,
+    rst_Controller_Interface,
+    
+    # Helpers e Bibliotecas
     st,
+    loadSessionStates,
     add_logo,
     option_menu,
-    loadSessionStates,
-    mainSidebarMenu,
-    imc_Controller_Interface,
-    gmv_Controller,
-    gpc_Controller,
-    rst_Controller_Interface
+    mainSidebarMenu
 )
-# Carrega os estados de sessão (corrigido em session_state.py)
+
+# Carrega os estados de sessão
 loadSessionStates()
 
 st.set_page_config(
@@ -25,10 +28,8 @@ add_logo("images/app_logo2.png", height=150)
 st.title('LABVCON - Laboratório Virtual de Controle')
 selectMethod = option_menu(
     menu_title=None,
-    # 1. ADICIONADO 'RST'
     options=['IMC', 'GMV', 'GPC', 'RST'],
     orientation='horizontal',
-    # 2. ADICIONADO ÍCONE 'terminal'
     icons=['ui-radios-grid',
            'app', 'command', 'terminal'],
 )
@@ -44,12 +45,12 @@ with st.sidebar:
 ##########################################################################
 
 case_functions = {
-    "IMC": imc_Controller_Interface,
-    "GMV": gmv_Controller,
-    "GPC": gpc_Controller,
-    # 3. ADICIONADO MAPEAMENTO PARA A NOVA INTERFACE RST
-    "RST": rst_Controller_Interface,
+    'GMV': gmv_Controller_Interface,
+    'GPC': gpc_Controller_Interface,
+    'IMC': imc_Controller_Interface,
+    'RST': rst_Controller_Interface
 }
+
 
 # Executa a função da view selecionada
 case_functions[selectMethod]()

@@ -1,9 +1,9 @@
-__all__ = [
-    # Nomes das views dos controladores
-    'gmv_Controller',
-    'gpc_Controller',
+_all__ = [
+    # Nomes das views dos controladores (CORRIGIDOS)
+    'gmv_Controller_Interface',
+    'gpc_Controller_Interface',
     'imc_Controller_Interface',
-    'rst_Controller_Interface',  # O nome que está a faltar
+    'rst_Controller_Interface',
 
     # Nomes de helpers que o LABVCON usa
     'loadSessionStates',
