@@ -35,23 +35,37 @@ def connectSerialManual(commPort,baudrate):
 
 
 def disconnectSerial(arduinoData):
-    arduinoData.close
-    arduinoData.__del__()
-
+    if arduinoData and arduinoData.is_open:
+        arduinoData.close()
+    # arduinoData.__del__() # Avoid manual __del__ calls
 
 
 def sendToArduino(arduinoData, textToSend):
-    if '\r' not in textToSend:
-        textToSend += '\r'
-    arduinoData.write(textToSend.encode())
-    arduinoData.flush()
+    try:
+        if arduinoData and arduinoData.is_open:
+            if '\r' not in textToSend:
+                textToSend += '\r'
+            arduinoData.write(textToSend.encode())
+            arduinoData.flush()
+        else:
+            # Port is closed or invalid
+            pass 
+    except (serial.SerialException, PermissionError) as e:
+        # Log error or just pass to avoid crashing the whole app
+        print(f"Serial Write Error: {e}")
+        pass
 
 
 def readFromArduino(arduinoData):
-    # ts = st.session_state.sampling_time
-    # time.sleep(ts)
-    dataRead, *_ = arduinoData.readline().decode().split('\r\n')
-    return float(dataRead)
+    try:
+        if arduinoData and arduinoData.is_open:
+            if arduinoData.in_waiting > 0: # Check if data is available
+                line = arduinoData.readline().decode('utf-8', errors='ignore').strip()
+                if line:
+                    return float(line)
+        return None
+    except (serial.SerialException, ValueError, PermissionError):
+        return None
 
 
 def serialPortValidationToConnect(port_option,baudrate_connection):
@@ -60,9 +74,12 @@ def serialPortValidationToConnect(port_option,baudrate_connection):
 
     if 'arduinoData' not in st.session_state.connected:
         with st.spinner('Processing...'):
-            arduinoData = connectSerialManual(port_option,baudrate_connection)
-            st.session_state.connected['arduinoData'] = arduinoData
-        st.success("Conectado!")
+            try:
+                arduinoData = connectSerialManual(port_option,baudrate_connection)
+                st.session_state.connected['arduinoData'] = arduinoData
+                st.success("Conectado!")
+            except Exception as e:
+                st.error(f"Erro ao conectar: {e}")
     else:
         st.write('O arduino já está conectado.')
 
@@ -73,7 +90,8 @@ def serialPortValidationToDisconnect():
         with st.spinner('Processing...'):
             time.sleep(2)
             disconnectSerial(arduinoData)
-            st.session_state.connected = {}
+            del st.session_state.connected['arduinoData'] # Properly remove from session state
+            # st.session_state.connected = {} # Don't wipe everything
         st.success("Desconectado!")
     else:
         st.warning('O arduino já está desconectado.')

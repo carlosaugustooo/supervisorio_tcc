@@ -76,7 +76,7 @@ def gpc_siso_tab_form():
     with nu_col:
         gpc_siso_nu = st.number_input('$N_u$', value=3, step=1, min_value=1, max_value=100, key='gpc_siso_nu')
     with lambda_col:
-        gpc_siso_lambda = st.number_input('$\lambda$', value=0.9, step=0.1, min_value=0.0, max_value=100.0, key='gpc_siso_lambda',format='%.2f')
+        gpc_siso_lambda = st.number_input('$\lambda$', value=0.9, step=0.1, min_value=0.0, max_value=1000.0, key='gpc_siso_lambda',format='%.2f')
 
     future_inputs_checkbox=st.checkbox('Considerar Referências Futuras?',key='siso_gpc_future_inputs_checkbox')
     
@@ -125,10 +125,7 @@ def gpc_siso_tab_form():
                                     gpc_siso_single_reference, gpc_siso_single_reference, gpc_siso_single_reference)
             
             elif reference_number == 'Múltiplas':
-                gpcControlProcessSISO(transfer_function_type,num_coeff,den_coeff,
-                                    gpc_siso_ny,gpc_siso_nu,gpc_siso_lambda,future_inputs_checkbox,
-                                    gpc_siso_multiple_reference1, gpc_siso_multiple_reference2,gpc_siso_multiple_reference3,
-                                    siso_change_ref_instant2,siso_change_ref_instant3)
+                gpcControlProcessSISO(transfer_function_type, num_coeff, den_coeff,gpc_siso_ny, gpc_siso_nu, gpc_siso_lambda, future_inputs_checkbox,gpc_siso_multiple_reference1, gpc_siso_multiple_reference2, gpc_siso_multiple_reference3,change_ref_instant2=siso_change_ref_instant2, change_ref_instant3=siso_change_ref_instant3) 
         
         elif gpc_controller_type == 'GPC-PID':
             if reference_number == 'Única':
@@ -137,9 +134,9 @@ def gpc_siso_tab_form():
                                     gpc_siso_single_reference, gpc_siso_single_reference, gpc_siso_single_reference)
             
             elif reference_number == 'Múltiplas':
-                gpcPidControlProcessSISO(transfer_function_type,num_coeff,den_coeff,
-                                    gpc_siso_ny,gpc_siso_nu,gpc_siso_lambda,future_inputs_checkbox,
-                                    gpc_siso_multiple_reference1, gpc_siso_multiple_reference2,gpc_siso_multiple_reference3,
-                                    siso_change_ref_instant2,siso_change_ref_instant3)
-
+                gpcPidControlProcessSISO(transfer_function_type, num_coeff, den_coeff,
+                                    gpc_siso_ny, gpc_siso_nu, gpc_siso_lambda, future_inputs_checkbox,
+                                    gpc_siso_multiple_reference1, gpc_siso_multiple_reference2, gpc_siso_multiple_reference3,
+                                    change_ref_instant2=siso_change_ref_instant2,  # <--- Uso explícito do nome do argumento
+                                    change_ref_instant3=siso_change_ref_instant3)
 # A função gpc_mimo_tab_form() foi removida.

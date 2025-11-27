@@ -1,3 +1,4 @@
+
 import streamlit as st
 from formatterInputs import *
 from control.matlab import tf, c2d, tfdata
@@ -90,11 +91,15 @@ def convert_tf_2_discrete(num_coeff:str,den_coeff:str,tf_type:str,f_gpc_mimo_che
     
 
     if tf_type == 'Discreto':
-        Gm1 = tf(num_coeff_float, den_coeff_float,sampling_time)   
+        # CORREÇÃO: Se já é discreto, criamos o objeto diretamente com o tempo de amostragem
+        # e não aplicamos c2d novamente.
+        Gmz1 = tf(num_coeff_float, den_coeff_float, sampling_time)
+    else:
+        # Se for contínuo, criamos a TF contínua e discretizamos (ZOH)
+        Gm1 = tf(num_coeff_float, den_coeff_float)
+        Gmz1 = c2d(Gm1, sampling_time)
     
-    # Motor 1 Model Transfer Function
-    Gm1 = tf(num_coeff_float, den_coeff_float)
-    Gmz1 = c2d(Gm1, sampling_time)
+    # Extração comum dos coeficientes num (B) e den (A)
     num1, den1 = tfdata(Gmz1)
     Am1 = den1[0][0]
     Bm1 = num1[0][0]

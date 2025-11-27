@@ -23,7 +23,6 @@ def rst_Controller_Interface():
         # --- Configuração do RST Incremental ---
         with incremental_tab:
             st.write('#### Configuração do RST Incremental (SISO)')
-            # Removemos a aba MIMO, chamamos o formulário SISO diretamente
             rst_incremental_siso_tab_form()           
 
         # --- Configuração do RST Adaptativo ---
@@ -129,19 +128,37 @@ def rst_incremental_siso_tab_form():
                 key='siso_change_ref_instant2')
 
     if st.button('Iniciar', type='primary', key='rst_inc_siso_button'):
-       
+        
+        # VALIDAÇÃO DE CAMPOS VAZIOS NA VIEW
+        if not num_coeff or not den_coeff:
+            st.error("Por favor, preencha os Coeficientes do Numerador e Denominador.")
+            return
+
         if reference_number == 'Única':
-            rstControlProcessIncrementalSISO(transfer_function_type, num_coeff, den_coeff, tau_ml_input, 
-                                     pid_structure,
-                                     rst_inc_single_reference,
-                                     rst_inc_single_reference,
-                                     rst_inc_single_reference)
+            rstControlProcessIncrementalSISO(
+                transfer_function_type=transfer_function_type, 
+                num_coeff=num_coeff, 
+                den_coeff=den_coeff, 
+                tau_ml_input=tau_ml_input, 
+                pid_structure=pid_structure,
+                rst_single_reference=rst_inc_single_reference,
+                rst_siso_multiple_reference2=rst_inc_single_reference,
+                rst_siso_multiple_reference3=rst_inc_single_reference
+            )
       
         elif reference_number == 'Múltiplas':
-           rstControlProcessIncrementalSISO(transfer_function_type,num_coeff,den_coeff,tau_ml_input, 
-                                     pid_structure,
-                                     rst_inc_siso_multiple_reference1, rst_inc_siso_multiple_reference2, rst_inc_siso_multiple_reference3, 
-                                     siso_change_ref_instant2,siso_change_ref_instant3)
+           rstControlProcessIncrementalSISO(
+               transfer_function_type=transfer_function_type,
+               num_coeff=num_coeff,
+               den_coeff=den_coeff,
+               tau_ml_input=tau_ml_input, 
+               pid_structure=pid_structure,
+               rst_single_reference=rst_inc_siso_multiple_reference1, 
+               rst_siso_multiple_reference2=rst_inc_siso_multiple_reference2, 
+               rst_siso_multiple_reference3=rst_inc_siso_multiple_reference3, 
+               change_ref_instant2=siso_change_ref_instant2,
+               change_ref_instant3=siso_change_ref_instant3
+            )
 
 # --- FORMULÁRIO DO RST ADAPTATIVO ---
 def rst_adaptive_siso_tab_form():
@@ -152,14 +169,14 @@ def rst_adaptive_siso_tab_form():
         '**Tipo de Função de Transferência**',
         ['Continuo','Discreto'],
         horizontal=True,
-        key='rst_adp_transfer_function_type' # Chave única
+        key='rst_adp_transfer_function_type'
     )
     
     help_text = 'Valores decimais como **0.9** ou **0.1, 0.993**. Para múltiplos valores, vírgula é necessário.'
     
     num_coeff = st.text_input(
         'Coeficientes do **Numerador B** :',
-        key='rst_adp_num_coeff', # Chave única
+        key='rst_adp_num_coeff',
         help=help_text,
         placeholder='b0, b1, ...'
     )
@@ -167,7 +184,7 @@ def rst_adaptive_siso_tab_form():
     
     den_coeff = st.text_input(
         'Coeficientes do **Denominador A** :',
-        key='rst_adp_den_coeff', # Chave única
+        key='rst_adp_den_coeff',
         help=help_text,
         placeholder='1, a1, a2, ...'
     )
@@ -256,23 +273,27 @@ def rst_adaptive_siso_tab_form():
         p0_initial = 10.0 ** p0_exponent
         
         if reference_number == 'Única':
-            rstControlProcessAdaptiveSISO(tau_ml_input, 
-                                          pid_structure,
-                                          a1_initial,
-                                          b0_initial,
-                                          p0_initial,
-                                          rst_adp_single_reference,
-                                          rst_adp_single_reference, 
-                                          rst_adp_single_reference)
+            rstControlProcessAdaptiveSISO(
+                tau_ml_input=tau_ml_input, 
+                pid_structure=pid_structure,
+                a1_initial=a1_initial,
+                b0_initial=b0_initial,
+                p0_initial=p0_initial,
+                rst_single_reference=rst_adp_single_reference,
+                rst_siso_multiple_reference2=rst_adp_single_reference, 
+                rst_siso_multiple_reference3=rst_adp_single_reference
+            )
       
         elif reference_number == 'Múltiplas':
-            rstControlProcessAdaptiveSISO(tau_ml_input, 
-                                          pid_structure,
-                                          a1_initial,
-                                          b0_initial,
-                                          p0_initial,
-                                          rst_adp_multiple_reference1, 
-                                          rst_adp_multiple_reference2, 
-                                          rst_adp_multiple_reference3, 
-                                          siso_change_ref_instant2,
-                                          siso_change_ref_instant3)
+            rstControlProcessAdaptiveSISO(
+                tau_ml_input=tau_ml_input, 
+                pid_structure=pid_structure,
+                a1_initial=a1_initial,
+                b0_initial=b0_initial,
+                p0_initial=p0_initial,
+                rst_single_reference=rst_adp_multiple_reference1, 
+                rst_siso_multiple_reference2=rst_adp_multiple_reference2, 
+                rst_siso_multiple_reference3=rst_adp_multiple_reference3, 
+                change_ref_instant2=siso_change_ref_instant2,
+                change_ref_instant3=siso_change_ref_instant3
+            )

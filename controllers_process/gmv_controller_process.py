@@ -225,4 +225,3 @@ def gmvControlProcessSISO(transfer_function_type:str,num_coeff:str,den_coeff:str
 
     # Turn off the motor
     sendToArduino(arduinoData, '0')
-
