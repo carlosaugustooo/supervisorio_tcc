@@ -18,16 +18,16 @@ def rst_Controller_Interface():
         st.write('### Configurações do Controlador')
         
         # Abas para os tipos de RST
-        incremental_tab, adaptative_tab = st.tabs(["RST Incremental", "RST Adaptativo"])       
+        incremental_tab, adaptative_tab = st.tabs(["RST não adaptativo", "RST Adaptativo"])       
         
         # --- Configuração do RST Incremental ---
         with incremental_tab:
-            st.write('#### Configuração do RST Incremental (SISO)')
+            st.write('#### Configuração do Sistema (SISO)')
             rst_incremental_siso_tab_form()           
 
         # --- Configuração do RST Adaptativo ---
         with adaptative_tab:
-            st.write('#### Configuração do RST Adaptativo (SISO)')
+            st.write('#### Configuração do Sistema (SISO)')
             rst_adaptive_siso_tab_form()
 
     with graphics_col:
@@ -62,14 +62,14 @@ def rst_incremental_siso_tab_form():
 
     transfer_function_type = st.radio('**Tipo de Função de Transferência**',['Continuo','Discreto'],horizontal=True,key='rst_inc_transfer_function_type')
     help_text = 'Valores decimais como **0.9** ou **0.1, 0.993**. Para múltiplos valores, vírgula é necessário.'
-    st.write(' **Função de Transferência do Modelo (B/A):**')
+    st.write(' **Função de Transferência do Modelo :**')
 
     num_coeff = st.text_input('Coeficientes do **Numerador B** :',key='rst_inc_num_coeff',help=help_text,placeholder='b0, b1, ...')
     coefficients_validations(num_coeff)
     den_coeff = st.text_input('Coeficientes do **Denominador A** :',key='rst_inc_den_coeff',help=help_text,placeholder='1, a1, a2, ...')
     coefficients_validations(den_coeff)
     
-    st.write('**Constante de Tempo de malha fechada desejada (tau):**')
+    
     tau_ml_input = st.number_input(
         'Constante de Tempo em Malha fechada (s):',
         value = 0.5,        # valor sugerido inicial
@@ -78,7 +78,7 @@ def rst_incremental_siso_tab_form():
         key = 'rst_inc_tau_ml'
     )
 
-    st.write('**Estrutura do Controlador (Sintonia PID via RST):**')
+    
     pid_structure = st.selectbox(
         'Selecione a estrutura de controle:',
         ('RST Incremental Puro', 'I + PD', 'PI + D', 'PID Ideal', 'PID Paralelo'),
