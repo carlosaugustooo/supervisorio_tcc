@@ -2,443 +2,427 @@ import streamlit as st
 from formatterInputs import *
 import numpy as np
 from connections import *
-import datetime
-from session_state import get_session_variable,set_session_controller_parameter
+from datetime import datetime 
+from session_state import get_session_variable, set_session_controller_parameter, set_session_variable
 from controllers_process.validations_functions import *
+import time
 
+# ==============================================================================
+# FUNÇÕES MATEMÁTICAS PURAS (Sem Scipy)
+# ==============================================================================
+
+def poly_mul(p1, p2):
+    return np.convolve(p1, p2)
+
+def poly_add(p1, p2):
+    l1, l2 = len(p1), len(p2)
+    if l1 > l2: p2 = np.pad(p2, (l1-l2, 0), 'constant')
+    elif l2 > l1: p1 = np.pad(p1, (l2-l1, 0), 'constant')
+    return p1 + p2
+
+def c2d_tustin_numpy(num_s, den_s, Ts):
+    num_s = np.array(num_s, dtype=float)
+    den_s = np.array(den_s, dtype=float)
+    n = max(len(num_s), len(den_s)) - 1
+    
+    num_s = np.pad(num_s, (n + 1 - len(num_s), 0), 'constant')
+    den_s = np.pad(den_s, (n + 1 - len(den_s), 0), 'constant')
+    
+    c = 2.0 / Ts
+    num_z = np.zeros(n + 1)
+    den_z = np.zeros(n + 1)
+    
+    for i in range(n + 1):
+        k = n - i 
+        term_minus = np.array([1.0])
+        for _ in range(k): term_minus = np.convolve(term_minus, [1, -1])
+        term_plus = np.array([1.0])
+        for _ in range(n - k): term_plus = np.convolve(term_plus, [1, 1])
+            
+        factor = c**k
+        term_poly = np.convolve(term_minus, term_plus) * factor
+        
+        num_z = poly_add(num_z, num_s[i] * term_poly)
+        den_z = poly_add(den_z, den_s[i] * term_poly)
+        
+    if abs(den_z[0]) > 1e-12:
+        num_z = num_z / den_z[0]
+        den_z = den_z / den_z[0]
+        
+    return num_z, den_z
+
+def get_pade_model_numpy(num_str, den_str, delay_time, sampling_time):
+    try:
+        num_plant = np.array([float(x) for x in num_str.split(',')])
+        den_plant = np.array([float(x) for x in den_str.split(',')])
+        
+        if delay_time > 0:
+            d = delay_time
+            num_pade = np.array([d**2, -6*d, 12])
+            den_pade = np.array([d**2,  6*d, 12])
+            
+            num_total = poly_mul(num_plant, num_pade)
+            den_total = poly_mul(den_plant, den_pade)
+        else:
+            num_total = num_plant
+            den_total = den_plant
+            
+        return c2d_tustin_numpy(num_total, den_total, sampling_time)
+    except Exception as e:
+        st.error(f"Erro Modelagem: {e}")
+        return np.array([0.0]), np.array([1.0])
+
+# ==============================================================================
+# CLASSE GPC
+# ==============================================================================
 
 class GeneralizedPredictiveController:
-    def __init__(self,nit, Ny,Nu,lambda_,ts,Am,Bm) -> None:
-        self.nit = nit
+    def __init__(self, Ny, Nu, lambda_, A, B):
         self.Ny = Ny
         self.Nu = Nu
         self.lambda_ = lambda_
-        self.ts = ts
-        self.Am = Am
-        self.Bm = Bm
-        na = len(Am)-1
-        self.E = np.zeros((Ny,Ny))
-        self.G = np.zeros((Ny,Nu))
-        self.H = np.zeros((Ny,1))  
-        self.gt = np.zeros((Ny,Ny))  
-        self.Kgpc = np.zeros((1,Ny))  
-        self.F = np.zeros((Ny,na+1))
-    
-    def create_A_til(self):
-        delta = [1,-1]
-        Atil = np.convolve(self.Am,delta)
-        return Atil
+        self.A = A
+        self.B = B
         
-    def create_C_poly(self):
-        Atil = self.create_A_til()
-        c_poly = np.ones(len(Atil))
-        c_poly[1:] = 0
-        # st.write('rr =')
-        # st.write(rr)
-        return c_poly
-     
-    def calculate_F_matrix(self,ny, rr, Atil):
+        # Modelo Incremental: A_tild = A * (1 - z^-1)
+        self.Ad = np.convolve(A, [1, -1])
         
-        quotient_coeff = np.zeros(ny) 
-        for k in range(ny):
-            quotient_coeff[k],r = np.polydiv(rr,Atil)
-            #st.write('new r =' ,r)
-            self.F[k,:] = r
-            rr = np.append(r,0)
-            #st.write('new rr =' ,rr)
-        return quotient_coeff # will generate a single element by index
-    
-    def calculate_E_matrix(self,ny,q):
-        for j in range(ny):
-            self.E[j:,j] = q[j] # ex: [[q0,0,0],[q0,q1,0],[q0,q1,q2]]
-    
-    def calculate_G_matrix(self,ny,nu):
-        # # Diophantine Second Equation
-        # B*E  = G*C + z^{-j}*H 
-        """
-        Primeiro, pegaremos a última linha da matriz E e, em seguida, a multiplicaremos com a matriz B, tratando ambos como um polinômio.
-        Agora, vamos nos concentrar em determinar os coeficientes de G. 
-        Esses coeficientes consistirão em todos os coeficientes do polinômio, exceto o último (que pertence a H).
+        self.G = np.zeros((Ny, Nu))
+        self.F_matrix = np.zeros((Ny, len(self.Ad) - 1))
         
-        First, we'll take the last row of matrix E and then multiply it with matrix B, treating both as a polynomial.
-        Now, let's focus on determining the coefficients of G. 
-        These coefficients will consist of all coefficients from the matrix, except the last one.
-        """
-        # B_E_conv = np.convolve(self.Bm,self.E[-1])
+        # Tamanho de H depende da ordem de B
+        self.nb = len(B) - 1
+        self.H_rows = max(self.nb, 1) 
+        self.H_matrix = np.zeros((Ny, self.H_rows))
         
-        # G_aux = B_E_conv[:-1]
-             
-        B_aux = np.convolve(self.Bm,self.E[-1])
-        #st.write('Baux =' ,B_aux)
-        nb_aux =len(B_aux)
-        T_BE = np.zeros(nb_aux+1)
-        T_BE[0] = 1
-        # st.write('T_BE =' ,T_BE)
-        
-        rr_BE = B_aux
-        G_aux = np.zeros(ny)
-        
-        for k in range(ny):
-            rr_BE = np.append(rr_BE,0)
-            #st.write('rr_BE',rr_BE)
-            q_BE,r_BE = np.polydiv(rr_BE, T_BE)
-            G_aux[k] = q_BE
-            rr_BE = r_BE
-                
-        for i in range(nu):
-            for j in range(i,ny):
-                self.G[j][i] = G_aux[j-i]
-        
+        self.Kgpc = None
+        self.R_poly = None
+        self.S_poly = None
 
-    def calculate_H_matrix(self,ny): 
-        """
-        Para se obter a matriz H deve-se multiplicar o polinômio B com todas as linhas de E. 
-        O último elemento de cada operação será um elemento de H.
+    def calculate_controller(self):
+        # 1. Resposta ao Degrau (G) e Livre (F) via Recursão Diofantina
         
-        """  
-        for i in range(ny):
-            EB_conv = np.convolve(self.E[i,0:(i+1)],self.Bm)    # B*E + j^{-1}*H
-            #st.write('EB_conv',EB_conv)
-            self.H[i] = EB_conv[-1]
-            #st.write('H',self.H)
+        # Vetor impulso unitário
+        impulse = np.zeros(self.Ny + len(self.Ad))
+        impulse[0] = 1.0
+        
+        # Filtra impulso por 1/Ad para obter E (Resposta ao degrau de perturbação)
+        e_step = np.zeros_like(impulse)
+        for k in range(len(impulse)):
+            val = impulse[k]
+            for i in range(1, len(self.Ad)):
+                if k - i >= 0:
+                    val -= self.Ad[i] * e_step[k-i]
+            e_step[k] = val
+            
+        # Convolução com B para obter parâmetros G (Resposta ao degrau da planta)
+        g_seq = np.convolve(e_step, self.B)
+        
+        # Monta matriz G (Toeplitz triangular inferior)
+        for i in range(self.Ny):
+            for j in range(self.Nu):
+                if i >= j:
+                    self.G[i, j] = g_seq[i-j]
                     
-    def calculateController(self):
-
-        Atil =self.create_A_til()
-        # st.write('Atil',Atil)
+        # 2. Matrizes F e H (Predição Livre)
+        # Inicialização Recursão Diophantina
+        f_curr = -self.Ad[1:] if len(self.Ad) > 1 else np.zeros(1)
+        h_curr = self.B[1:] if len(self.B) > 1 else np.zeros(1)
         
-        # Calculate the predictor matrices (F, H, G)
-        # Diophantine Fist Equation
-        c_poly = self.create_C_poly()
-                        
-        quotient_coeff = self.calculate_F_matrix(self.Ny,c_poly,Atil)
-           
-        self.calculate_E_matrix(self.Ny,quotient_coeff)
-        # st.write('E =' ,self.E)
-                
-        # # Diophantine Second Equation
-        # B*E  = G*C + z^{-j}*H 
+        f_len = self.F_matrix.shape[1]
+        h_len = self.H_matrix.shape[1]
         
-        self.calculate_G_matrix(self.Ny,self.Nu)
-                
-        self.calculate_H_matrix(self.Ny)
+        for j in range(self.Ny):
+            # Armazena linha j
+            f_store = f_curr[:f_len] if len(f_curr) >= f_len else np.pad(f_curr, (0, f_len-len(f_curr)), 'constant')
+            self.F_matrix[j, :] = f_store
             
-        
-        ## Operação Final 
-        
-        G = self.G
-        lambda_ = self.lambda_
-        nu = self.Nu
-        
-        G_lambda_op = np.dot(G.T,G) + lambda_ *np.eye(nu) # G^T * G + lambda*I
-       
-        # Obtain the inverse matrix
-        G_lambda_op_inv = np.linalg.inv(G_lambda_op) # (G^T * G + lambda*I)^{-1}
-        
-        # Multiply the inverse by the G transpose
-        self.gt = np.dot(G_lambda_op_inv, G.T) # (G^T * G + lambda*I)^{-1} * G^{T}
-        
-        self.Kgpc = self.gt[0]
-                
+            h_store = h_curr[:h_len] if len(h_curr) >= h_len else np.pad(h_curr, (0, h_len-len(h_curr)), 'constant')
+            self.H_matrix[j, :] = h_store
+            
+            # Recursão para j+1
+            f0 = f_curr[0] if len(f_curr) > 0 else 0.0
+            
+            term = f0 * self.Ad
+            len_max = max(len(f_curr), len(term))
+            f_next = np.pad(f_curr, (0, len_max-len(f_curr))) - np.pad(term, (0, len_max-len(term)))
+            f_next = f_next[1:] 
+            
+            # Recalcula E para passo j+1 para obter H correto
+            e_vec = e_step[:j+2]
+            eb = np.convolve(e_vec, self.B)
+            h_next = eb[j+2:]
+            
+            f_curr = f_next
+            h_curr = h_next
 
-def gpcControlProcessSISO(transfer_function_type:str,num_coeff:str,den_coeff:str,
-                          gpc_siso_ny:int,gpc_siso_nu:int,gpc_siso_lambda:float,future_inputs_checkbox:bool,
+        # 3. Cálculo do Ganho K
+        H_hess = np.dot(self.G.T, self.G) + self.lambda_ * np.eye(self.Nu)
+        
+        # Proteção contra Matriz Singular
+        try:
+            inv_H = np.linalg.inv(H_hess)
+        except:
+            inv_H = np.zeros_like(H_hess) # Fallback seguro
+            
+        K_tot = np.dot(inv_H, self.G.T)
+        
+        self.Kgpc = K_tot[0, :]
+        
+        # 4. Polinômios Equivalentes (R, S)
+        self.S_poly = np.dot(self.Kgpc, self.F_matrix)
+        kh = np.dot(self.Kgpc, self.H_matrix)
+        self.R_poly = np.insert(kh, 0, 1.0)
+
+# ==============================================================================
+# PROCESSO PRINCIPAL
+# ==============================================================================
+
+def gpcControlProcessSISO(transfer_function_type:str, num_coeff:str, den_coeff:str,
+                          gpc_siso_n1:int, gpc_siso_ny:int, gpc_siso_nu:int, gpc_siso_lambda:float,
                           gpc_multiple_reference1:float, gpc_multiple_reference2:float, gpc_multiple_reference3:float,
-                          f_gpc_mimo_checkbox=False, K_alpha=0, alpha_fgpc=0,
-                          change_ref_instant2 = 1, change_ref_instant3 = 1):
+                          change_ref_instant2:float, change_ref_instant3:float,
+                          future_inputs_checkbox=False,
+                          pid_structure='GPC Padrão',
+                          f_gpc_mimo_checkbox=False, K_alpha=0, alpha_fgpc=0):
     
-    if num_coeff == '':
-        return st.error('Coeficientes incorretos no Numerador.')
-    
-    if den_coeff =='':
-        return st.error('Coeficientes incorretos no Denominador.')
+    if num_coeff == '': return st.error('Coeficientes incorretos.')
 
-    # Receber os valores de tempo de amostragem e número de amostras da sessão
+    # Fallback seguro para sampling time
     sampling_time = get_session_variable('sampling_time')
-    samples_number = get_session_variable('samples_number')
+    if sampling_time is None: sampling_time = 0.5
+    
+    samples_number = get_session_variable('samples_number') or 100
     
     if 'arduinoData' not in st.session_state.connected:
         return st.warning('Arduino não conectado!')
-    
-    # Receber o objeto arduino da sessão
     arduinoData = st.session_state.connected['arduinoData']
 
-    # GPC Controller Project
-    
-    Ny = gpc_siso_ny
-    Nu = gpc_siso_nu
-    lambda_ = gpc_siso_lambda
+    # --- LIMPEZA DE BUFFER (CRÍTICO) ---
+    if arduinoData.is_open:
+        arduinoData.reset_input_buffer()
+        arduinoData.reset_output_buffer()
+        # Envia zero com terminador para garantir handshake
+        sendToArduino(arduinoData, "0\n")
+        time.sleep(0.5) # Tempo aumentado para garantir reset do Arduino
 
-    # Initial Conditions
+    # --- INICIALIZAÇÃO DE ESTADOS ---
     process_output = np.zeros(samples_number)
     delta_control_signal = np.zeros(samples_number)
+    manipulated_variable_1 = np.zeros(samples_number)
 
-    # Take the index of time to change the referencee
+    # Referências
     instant_sample_2 = get_sample_position(sampling_time, samples_number, change_ref_instant2)
     instant_sample_3 = get_sample_position(sampling_time, samples_number, change_ref_instant3)
 
-    reference_input = gpc_multiple_reference1*np.ones(samples_number+Ny)
+    reference_input = gpc_multiple_reference1 * np.ones(samples_number + gpc_siso_ny)
     reference_input[instant_sample_2:instant_sample_3] = gpc_multiple_reference2
     reference_input[instant_sample_3:] = gpc_multiple_reference3
-    set_session_controller_parameter('reference_input',reference_input[:samples_number].tolist())
-    # st.session_state.controller_parameters['reference_input'] = reference_input.tolist()
-
-    # Power Saturation
-    max_pot = get_session_variable('saturation_max_value')
-    min_pot = get_session_variable('saturation_min_value')
     
-    # Validação para o erro 'NoneType' na Saturação
-    if max_pot is None or min_pot is None:
-        st.error("FALHA (Back-end): Valores de Saturação (Máx/Mín) não definidos. Configure-os na Sidebar.")
-        return
+    set_session_controller_parameter('reference_input', reference_input[:samples_number].tolist())
 
-    # Manipulated variable
-    manipulated_variable_1 = np.zeros(samples_number)
-    serial_data_pack = "0"
+    min_pot = get_session_variable('saturation_min_value') or 0.0
+    max_pot = get_session_variable('saturation_max_value') or 100.0
 
-    # Model transfer Function
-    A_coeff, B_coeff = convert_tf_2_discrete(num_coeff,den_coeff,transfer_function_type,f_gpc_mimo_checkbox, K_alpha, alpha_fgpc)
-    
-    # print(A_coeff)
-    # print(B_coeff)
-    A_order = len(A_coeff)-1
-    B_order = len(B_coeff)
-    
-    
-  
-    # GPC CONTROLLER
-    gpc_m1 = GeneralizedPredictiveController(nit= samples_number,Ny=Ny,Nu=Nu,lambda_=lambda_,
-                                             ts=sampling_time,Am=A_coeff, Bm=B_coeff)
-    gpc_m1.calculateController()
-
-    # clear previous control signal values
-    set_session_controller_parameter('control_signal_1',dict())
-    control_signal_1 = get_session_variable('control_signal_1')
-    
-    # clear previous control signal values
-    set_session_controller_parameter('process_output_sensor',dict())
-    process_output_sensor = get_session_variable('process_output_sensor')
-
-    # inicializar  o timer
-    start_time = time.time()
-    kk = 0
-
-    # Inicializar a barra de progresso
-    progress_text = "Operation in progress. Please wait."
-    my_bar = st.progress(0, text=progress_text)
-    
-    # receive the first mesure 
-    sendToArduino(arduinoData, "0")
-    
-
-    while kk < samples_number:
-        current_time = time.time()
-        if current_time - start_time > sampling_time:
-            start_time = current_time
-            
-            # -----  Angle Sensor Output
-            # print(f'kk = {kk}')
-            process_output[kk] = readFromArduino(arduinoData)
-
-            
-            if kk <= A_order:
-                F_yf = np.dot(gpc_m1.F, np.zeros(A_order+1))
-                sendToArduino(arduinoData, '0')
-                
-
-            # ---- Motor Model Output
-            elif kk == 1 and A_order == 1:
-              
-                F_yf = np.dot(gpc_m1.F,process_output[kk::-1])
-                
-            elif kk > A_order:
-                F_yf = np.dot(gpc_m1.F,process_output[kk:kk-A_order-1:-1])
-                    # st.write('F*yf',F_yf)           
-                                        
-                
-            aux_ref = future_inputs_selection(future_inputs_checkbox,kk,Ny,reference_input)
-            
-                # st.write('F*yf',F_yf)
-                
-            H_du = np.dot(gpc_m1.H,delta_control_signal[kk-1])
-                # st.write('H*du',H_du)
-                
-            fi = np.squeeze(H_du) + F_yf
-            
-            delta_control_signal[kk] = np.dot(gpc_m1.Kgpc,(aux_ref-fi))
-            manipulated_variable_1[kk] = manipulated_variable_1[kk-1] + delta_control_signal[kk]
-            
-            # Control Signal Saturation
-            manipulated_variable_1[kk] = max(min_pot, min(manipulated_variable_1[kk], max_pot))
-        
-
-            # Motor Power String Formatation
-            serial_data_pack = f"{manipulated_variable_1[kk]}\r"
-            sendToArduino(arduinoData, serial_data_pack)
-                
-            
-            # Store the output process values and control signal
-            current_timestamp = str(datetime.now())
-            process_output_sensor[current_timestamp] = float(process_output[kk])
-            control_signal_1[current_timestamp] = float(manipulated_variable_1[kk])
-            kk += 1
-
-            percent_complete = kk / (samples_number)
-            my_bar.progress(percent_complete, text=progress_text)
-
-    # Turn off the motor
-    sendToArduino(arduinoData, '0')
-
-
-
-def gpcPidControlProcessSISO(transfer_function_type:str,num_coeff:str,den_coeff:str,
-                          gpc_siso_ny:int,gpc_siso_nu:int,gpc_siso_lambda:float,future_inputs_checkbox:bool,
-                          gpc_multiple_reference1:float, gpc_multiple_reference2:float, gpc_multiple_reference3:float,
-                          f_gpc_mimo_checkbox=False, K_alpha=0, alpha_fgpc=0,
-                          change_ref_instant2 = 1, change_ref_instant3 = 1):
-    
-    if num_coeff == '':
-        return st.error('Coeficientes incorretos no Numerador.')
-    
-    if den_coeff =='':
-        return st.error('Coeficientes incorretos no Denominador.')
-
-    # Receber os valores de tempo de amostragem e número de amostras da sessão
-    sampling_time = get_session_variable('sampling_time')
-    samples_number = get_session_variable('samples_number')
-    
-    if 'arduinoData' not in st.session_state.connected:
-        return st.warning('Arduino não conectado!')
-    
-    # Receber o objeto arduino da sessão
-    arduinoData = st.session_state.connected['arduinoData']
-
-    # GPC Controller Project
-    
-    Ny = gpc_siso_ny
-    Nu = gpc_siso_nu
-    lambda_ = gpc_siso_lambda
-
-    # Initial Conditions
-    process_output = np.zeros(samples_number)
-    delta_control_signal = np.zeros(samples_number)
-
-    # Take the index of time to change the referencee
-    instant_sample_2 = get_sample_position(sampling_time, samples_number, change_ref_instant2)
-    instant_sample_3 = get_sample_position(sampling_time, samples_number, change_ref_instant3)
-
-    reference_input = gpc_multiple_reference1*np.ones(samples_number+Ny)
-    reference_input[instant_sample_2:instant_sample_3] = gpc_multiple_reference2
-    reference_input[instant_sample_3:] = gpc_multiple_reference3
-    set_session_controller_parameter('reference_input',reference_input[:samples_number].tolist())
-    # st.session_state.controller_parameters['reference_input'] = reference_input.tolist()
-
-    # Power Saturation
-    max_pot = get_session_variable('saturation_max_value')
-    min_pot = get_session_variable('saturation_min_value')
-    
-    # Validação para o erro 'NoneType' na Saturação
-    if max_pot is None or min_pot is None:
-        st.error("FALHA (Back-end): Valores de Saturação (Máx/Mín) não definidos. Configure-os na Sidebar.")
-        return
-
-    # Manipulated variable
-    manipulated_variable_1 = np.zeros(samples_number)
-    serial_data_pack = "0"
-
-    # Model transfer Function
-    A_coeff, B_coeff = convert_tf_2_discrete(num_coeff,den_coeff,transfer_function_type,f_gpc_mimo_checkbox, K_alpha, alpha_fgpc)
-    
-    # print(A_coeff)
-    # print(B_coeff)
-    A_order = len(A_coeff)-1
-    B_order = len(B_coeff)
-    
-    
-  
-    # GPC CONTROLLER
-    gpc_m1 = GeneralizedPredictiveController(nit= samples_number,Ny=Ny,Nu=Nu,lambda_=lambda_,
-                                             ts=sampling_time,Am=A_coeff, Bm=B_coeff)
-    gpc_m1.calculateController()
-
-    # clear previous control signal values
-    set_session_controller_parameter('control_signal_1',dict())
-    control_signal_1 = get_session_variable('control_signal_1')
-    
-    # clear previous control signal values
-    set_session_controller_parameter('process_output_sensor',dict())
-    process_output_sensor = get_session_variable('process_output_sensor')
-    
-    ## ---- Cáculo dos elementos do sinal de controle R, S e T
-    T_1 = sum(gpc_m1.Kgpc);                       # polinômio que afeta o sinal de entrada
-    S_1 = np.dot(gpc_m1.Kgpc,gpc_m1.F);           # polinômio que afeta as saída preditas
-    R_1 = np.dot(gpc_m1.Kgpc,gpc_m1.H);           # polinômio que afeta a ação de controle passada du(t-1);
-    R_1 = np.insert(R_1,0,1)
-
-    # inicializar  o timer
-    start_time = time.time()
-    kk = 0
-
-    # Inicializar a barra de progresso
-    progress_text = "Operation in progress. Please wait."
-    my_bar = st.progress(0, text=progress_text)
-    
-    # receive the first mesure 
-    sendToArduino(arduinoData, "0")
-    
-
-    while kk < samples_number:
-        current_time = time.time()
-        if current_time - start_time > sampling_time:
-            start_time = current_time
-            
-            # -----  Angle Sensor Output
-            # print(f'kk = {kk}')
-            process_output[kk] = readFromArduino(arduinoData)
-
-            if kk <= A_order:
-                sendToArduino(arduinoData, '0,0')     
-            
-            # Controle via estrutura RST
-            elif kk == 1 and A_order == 1:
-                delta_control_signal[kk] = -R_1[1]*delta_control_signal[kk-1] + T_1*reference_input[kk] - np.dot(S_1,process_output[kk::-1])
-            
-            elif kk > A_order:
-                delta_control_signal[kk] = -R_1[1]*delta_control_signal[kk-1] + T_1*reference_input[kk] - np.dot(S_1,process_output[kk:kk-A_order-1:-1])
-                manipulated_variable_1[kk] = manipulated_variable_1[kk-1] + delta_control_signal[kk]
-            
-            # Control Signal Saturation
-            manipulated_variable_1[kk] = max(min_pot, min(manipulated_variable_1[kk], max_pot))
-        
-
-            # Motor Power String Formatation
-            serial_data_pack = f"{manipulated_variable_1[kk]}\r"
-            sendToArduino(arduinoData, serial_data_pack)
-                
-            
-            # Store the output process values and control signal
-            current_timestamp = str(datetime.now())
-            process_output_sensor[current_timestamp] = float(process_output[kk])
-            control_signal_1[current_timestamp] = float(manipulated_variable_1[kk])
-            kk += 1
-
-            percent_complete = kk / (samples_number)
-            my_bar.progress(percent_complete, text=progress_text)
-
-    # Turn off the motor
-    sendToArduino(arduinoData, '0')
-
-
-
-
-def future_inputs_selection(future_inputs_checkbox,kk,Ny,reference_input):
-    if future_inputs_checkbox:
-    # Referência futura conhecidax
-        aux_ref = reference_input[kk:kk+Ny]
+    # --- MODELAGEM ---
+    if transfer_function_type == 'Continuo':
+        delay_val = 2.0 
+        B_coeff, A_coeff = get_pade_model_numpy(num_coeff, den_coeff, delay_val, sampling_time)
     else:
-    #  Referência futura desconhecida
-        aux_ref = reference_input[kk]*np.ones(Ny)
-        
-    return aux_ref
+        A_coeff, B_coeff = convert_tf_2_discrete(num_coeff, den_coeff, transfer_function_type)
+    
+    # --- CÁLCULO GPC ---
+    gpc = GeneralizedPredictiveController(Ny=gpc_siso_ny, Nu=gpc_siso_nu, lambda_=gpc_siso_lambda, 
+                                          A=A_coeff, B=B_coeff)
+    gpc.calculate_controller()
 
-# As funções gpcControlProcessTISO e gpcMimoControlProcessTISO foram removidas.
+    # --- EXTRAÇÃO DE GANHOS PID ---
+    r0 = gpc.R_poly[0] if abs(gpc.R_poly[0]) > 1e-9 else 1.0
+    inv_r0 = 1.0 / r0
+    
+    s0_val = gpc.S_poly[0]
+    s1_val = gpc.S_poly[1] if len(gpc.S_poly) > 1 else 0.0
+    s2_val = gpc.S_poly[2] if len(gpc.S_poly) > 2 else 0.0
+    
+    kd_gpc = inv_r0 * s2_val
+    s1_norm = inv_r0 * s1_val
+    kc_gpc = -s1_norm - 2 * kd_gpc
+    ki_gpc = inv_r0 * np.sum(gpc.S_poly)
+
+    # --- DIAGNÓSTICO ---
+    with st.expander(f"Diagnóstico GPC (Padé 2ª Ordem)", expanded=True):
+        c1, c2 = st.columns(2)
+        with c1:
+            st.markdown(f"**Sintonia:** $N_y={gpc_siso_ny}$, $N_u={gpc_siso_nu}$, $\lambda={gpc_siso_lambda}$")
+            st.caption(f"S(z): {np.round(gpc.S_poly, 3)}")
+        with c2:
+            st.markdown("**PID Equivalente:**")
+            st.latex(f"K_c = {kc_gpc:.4f}")
+            st.latex(f"K_i = {ki_gpc:.4f}")
+            st.latex(f"K_d = {kd_gpc:.4f}")
+    
+    pid_clean = str(pid_structure).strip()
+    if pid_clean != 'GPC Padrão': st.info(f"Modo Ativo: **{pid_clean}**")
+
+    # --- LOOP DE CONTROLE ---
+    set_session_controller_parameter('control_signal_1', dict())
+    control_signal_1 = get_session_variable('control_signal_1')
+    set_session_controller_parameter('process_output_sensor', dict())
+    process_output_sensor = get_session_variable('process_output_sensor')
+
+    start_time = time.time()
+    kk = 0
+    
+    metrics_placeholder = st.empty()
+    my_bar = st.progress(0, text="Executando GPC...")
+
+    # Memória para leitura robusta
+    y_prev = 0.0
+
+    while kk < samples_number:
+        current_time = time.time()
+        
+        # Verifica tempo de amostragem
+        if current_time - start_time > sampling_time:
+            start_time = current_time
+            
+            # ==========================================================
+            # 1. LEITURA ROBUSTA (DRENAGEM DE BUFFER) - IGUAL AO GMV
+            # ==========================================================
+            y_k = y_prev # Default se não houver leitura nova
+            
+            if arduinoData.is_open:
+                raw_val = None
+                # Loop para esvaziar o buffer e pegar o dado mais recente
+                while arduinoData.in_waiting > 0:
+                    try:
+                        line = arduinoData.readline().decode('utf-8').strip()
+                        if line: raw_val = float(line)
+                    except: pass
+                
+                # Se leu algo válido, atualiza y_k
+                if raw_val is not None: 
+                    y_k = raw_val
+            
+            # Armazena e atualiza memória anterior
+            process_output[kk] = y_k
+            y_prev = y_k
+
+            # 2. CÁLCULO DE CONTROLE
+            if kk < 3: 
+                # Envia zero no início para estabilizar
+                if arduinoData.is_open: sendToArduino(arduinoData, "0\n")
+                delta_control_signal[kk] = 0.0
+                manipulated_variable_1[kk] = 0.0
+            else:
+                y_k_curr = process_output[kk]
+                y_k1 = process_output[kk-1]
+                y_k2 = process_output[kk-2]
+                
+                ref_val = reference_input[kk]
+                e_k = ref_val - y_k_curr
+                e_k1 = reference_input[kk-1] - y_k1
+                e_k2 = reference_input[kk-2] - y_k2
+
+                if pid_clean == 'GPC Padrão':
+                    if future_inputs_checkbox:
+                        w_vec = reference_input[kk : kk + gpc_siso_ny]
+                        if len(w_vec) < gpc_siso_ny:
+                            w_vec = np.pad(w_vec, (0, gpc_siso_ny - len(w_vec)), 'edge')
+                    else:
+                        w_vec = np.ones(gpc_siso_ny) * ref_val
+                    
+                    # F*y
+                    f_cols = gpc.F_matrix.shape[1]
+                    y_vec = []
+                    for i in range(f_cols):
+                        idx = kk - i
+                        if idx >= 0: y_vec.append(process_output[idx])
+                        else: y_vec.append(0.0)
+                    
+                    # H*du
+                    h_cols = gpc.H_matrix.shape[1]
+                    du_vec = []
+                    for i in range(h_cols):
+                        idx = kk - 1 - i 
+                        if idx >= 0: du_vec.append(delta_control_signal[idx])
+                        else: du_vec.append(0.0)
+                    
+                    f_total = np.dot(gpc.F_matrix, y_vec) + np.dot(gpc.H_matrix, du_vec)
+                    error_pred = w_vec - f_total
+                    
+                    delta_control_signal[kk] = np.dot(gpc.Kgpc, error_pred)
+                    
+                else:
+                    # PID Equivalente
+                    delta_u = 0.0
+                    if pid_clean == 'I + PD':
+                        delta_u = (ki_gpc * e_k) - (kc_gpc * (y_k_curr - y_k1)) - (kd_gpc * (y_k_curr - 2*y_k1 + y_k2))
+                    elif pid_clean == 'PI + D':
+                        delta_u = (kc_gpc * (e_k - e_k1)) + (ki_gpc * e_k) - (kd_gpc * (y_k_curr - 2*y_k1 + y_k2))
+                    elif pid_clean == 'PID Paralelo':
+                        delta_u = (kc_gpc * (e_k - e_k1)) + (ki_gpc * e_k) + (kd_gpc * (e_k - 2*e_k1 + e_k2))
+                    elif pid_clean == 'PID Ideal':
+                        if abs(kc_gpc) > 1e-9:
+                            term_p = (e_k - e_k1)
+                            term_i = (ki_gpc/kc_gpc)*e_k
+                            term_d = (kd_gpc/kc_gpc)*(e_k - 2*e_k1 + e_k2)
+                            delta_u = kc_gpc * (term_p + term_i + term_d)
+                    
+                    delta_control_signal[kk] = delta_u
+
+            # 3. ATUALIZAÇÃO E ENVIO
+            manipulated_variable_1[kk] = manipulated_variable_1[kk-1] + delta_control_signal[kk]
+            manipulated_variable_1[kk] = max(min_pot, min(manipulated_variable_1[kk], max_pot))
+            
+            if arduinoData.is_open:
+                # Usando \n para garantir que o Arduino reconheça o fim do comando
+                # Formatando para evitar excesso de casas decimais na serial
+                sendToArduino(arduinoData, f"{manipulated_variable_1[kk]:.4f}\n")
+                
+            ts_now = str(datetime.now())
+            process_output_sensor[ts_now] = float(process_output[kk])
+            control_signal_1[ts_now] = float(manipulated_variable_1[kk])
+            
+            # 4. VISUALIZAÇÃO
+            with metrics_placeholder.container():
+                mc1, mc2 = st.columns(2)
+                mc1.metric("Nível (cm)", f"{process_output[kk]:.2f}")
+                mc2.metric("Controle (V)", f"{manipulated_variable_1[kk]:.2f}")
+            
+            kk += 1
+            my_bar.progress(kk/samples_number)
+        else:
+            # Libera CPU enquanto espera o tempo de amostragem
+            time.sleep(0.005)
+
+    if arduinoData.is_open: sendToArduino(arduinoData, "0\n")
+
+    # --- 5. FINALIZAÇÃO E UPDATE DE ESTADO (CRÍTICO) ---
+    # Garante que os valores de controle e saída estejam salvos na sessão
+    set_session_controller_parameter('process_output_sensor', process_output_sensor)
+    set_session_controller_parameter('control_signal_1', control_signal_1)
+
+    # 5.1 Cálculo de Métricas (IAE e TVC)
+    # IMPORTANTE: Escrever diretamente em controller_parameters para a UI detectar
+    iae_calc = np.sum(np.abs(reference_input[:samples_number] - process_output[:samples_number])) * sampling_time
+    tvc_calc = np.sum(np.abs(np.diff(manipulated_variable_1[:samples_number])))
+    
+    if 'controller_parameters' not in st.session_state:
+        st.session_state.controller_parameters = {}
+        
+    st.session_state.controller_parameters['iae_metric'] = float(iae_calc)
+    st.session_state.controller_parameters['tvc_1_metric'] = float(tvc_calc)
+
+    # 5.2 Parâmetros de Sintonia (Tabela)
+    # Salva no dicionário esperado pela UI (controller_parameters['gpc_calculated_params'])
+    st.session_state.controller_parameters['gpc_calculated_params'] = {
+        'Ny': int(gpc_siso_ny),
+        'Nu': int(gpc_siso_nu),
+        'Lambda': float(gpc_siso_lambda),
+        'Kc': float(kc_gpc),
+        'Ki': float(ki_gpc),
+        'Kd': float(kd_gpc)
+    }
+
+    st.success("Teste GPC Finalizado.")

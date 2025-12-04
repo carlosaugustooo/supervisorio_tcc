@@ -1,299 +1,295 @@
 import streamlit as st
+import pandas as pd
+import altair as alt
 from formatterInputs import *
 from connections import *
 from session_state import *
 from controllers_process.validations_functions import *
-# Importa apenas as funções SISO (Incremental e Adaptativa)
 from controllers_process.rst_controller_process import rstControlProcessIncrementalSISO, rstControlProcessAdaptiveSISO
 
 def calculate_time_limit():
-    sim_time = get_session_variable('simulation_time')
-    return sim_time if sim_time is not None else 60.0 # Retorna 60s como padrão
+    try:
+        sim_time = get_session_variable('simulation_time')
+        return sim_time if sim_time is not None else 60.0
+    except:
+        return 60.0
 
 def rst_Controller_Interface():
-    st.header('Regulador de Alocação de Polos (RST)')
-    graphics_col, rst_config_col = st.columns([0.7, 0.3])
+    # Cabeçalho padrão (Será escondido na impressão)
+    st.header('Regulador RST (Alocação de Polos)')
 
-    with rst_config_col:
-        st.write('### Configurações do Controlador')
-        
-        # Abas para os tipos de RST
-        incremental_tab, adaptative_tab = st.tabs(["RST não adaptativo", "RST Adaptativo"])       
-        
-        # --- Configuração do RST Incremental ---
-        with incremental_tab:
-            st.write('#### Configuração do Sistema (SISO)')
-            rst_incremental_siso_tab_form()           
+    # --- 1. Recuperação de Dados ---
+    val_iae = get_session_variable('iae_metric')
+    val_tvc = get_session_variable('tvc_1_metric')
 
-        # --- Configuração do RST Adaptativo ---
-        with adaptative_tab:
-            st.write('#### Configuração do Sistema (SISO)')
-            rst_adaptive_siso_tab_form()
+    if val_iae is None: val_iae = 0.0
+    if val_tvc is None: val_tvc = 0.0
 
-    with graphics_col:
-        y_max = get_session_variable('saturation_max_value')
-        y_min = get_session_variable('saturation_min_value')
+    # --- 2. Checkbox para Modo de Impressão ---
+    modo_relatorio = st.checkbox("🖨️ Modo Impressão (PDF para TCC)", value=False, key='print_mode_rst')
 
+    if modo_relatorio:
+        # ===================================================
+        #           MODO RELATÓRIO (IMPRESSÃO PDF)
+        # ===================================================
+        st.markdown("""
+            <style>
+                @media print {
+                    /* 1. Configuração da Página: Paisagem A4 */
+                    @page { 
+                        size: A4 landscape; 
+                        margin: 5mm; 
+                    }
+                    
+                    /* 2. LIMPEZA TOTAL (Esconde Interface) */
+                    [data-testid="stSidebar"], header, footer, .stDeployButton, [data-testid="stToolbar"] {display: none !important;}
+                    .stButton, .stCheckbox, .stSelectbox, .stSlider, .stRadio, .stNumberInput, .stTextInput {display: none !important;}
+                    .stTabs, [data-baseweb="tab-list"], iframe, div[data-testid="stIFrame"] {display: none !important;}
+                    
+                    /* Esconde Títulos e Logos do App */
+                    h1, h2, [data-testid="stImage"], img { display: none !important; }
+                    
+                    /* 3. LAYOUT COMPACTO */
+                    .block-container {
+                        padding: 0 !important;
+                        margin: 0 !important;
+                        max-width: 100% !important;
+                        width: 100% !important;
+                    }
+                    .stApp {background-color: white !important;}
+                    
+                    /* Remove espaçamentos verticais do Streamlit */
+                    div[data-testid="stVerticalBlock"] { gap: 0.2rem !important; }
+                    
+                    /* 4. GARANTIA DE NÃO-QUEBRA E RESOLUÇÃO */
+                    .element-container {
+                        break-inside: avoid !important;
+                        page-break-inside: avoid !important;
+                    }
+                    
+                    canvas {
+                        max-width: 100% !important;
+                        width: 100% !important;
+                        height: auto !important;
+                        display: block !important;
+                    }
+                    
+                    /* Garante que títulos h3 fiquem próximos aos gráficos */
+                    h3 { margin-bottom: 0px !important; margin-top: 10px !important; font-size: 16px !important;}
+                }
+            </style>
+        """, unsafe_allow_html=True)
+
+        # --- GRÁFICOS DO RELATÓRIO ---
         if get_session_variable('process_output_sensor'):
-            process_output_dataframe = dataframeToPlot('process_output_sensor','Process Output','reference_input')
-            st.subheader('Resposta do Sistema')
-            altair_plot_chart_validation(process_output_dataframe,
-                                         y_max = y_max,y_min = y_min,
-                                         x_column = 'Time (s)', y_column = ['Reference','Process Output'])    
-        
-        st.subheader('Sinal de Controle')
-        if get_session_variable('control_signal_1'):
-            control_signal_with_elapsed_time = datetime_obj_to_elapsed_time('control_signal_1')
-            control_signal_1_dataframe = dictionary_to_pandasDataframe(control_signal_with_elapsed_time,'Control Signal 1')
-            altair_plot_chart_validation(control_signal_1_dataframe,control= True,
-                                         y_max = y_max,y_min = y_min,
-                                         x_column = 'Time (s)', y_column = 'Control Signal 1',
-                                         height=250)
-
-    st.write('### Índices de Desempenho')
-    iae_col, tvc_col = st.columns([0.2,0.8])
-    with iae_col:
-        iae_metric_validation()
-    with tvc_col:
-        tvc1_validation()
-
-# --- FORMULÁRIO DO RST INCREMENTAL ---
-def rst_incremental_siso_tab_form():
-
-    transfer_function_type = st.radio('**Tipo de Função de Transferência**',['Continuo','Discreto'],horizontal=True,key='rst_inc_transfer_function_type')
-    help_text = 'Valores decimais como **0.9** ou **0.1, 0.993**. Para múltiplos valores, vírgula é necessário.'
-    st.write(' **Função de Transferência do Modelo :**')
-
-    num_coeff = st.text_input('Coeficientes do **Numerador B** :',key='rst_inc_num_coeff',help=help_text,placeholder='b0, b1, ...')
-    coefficients_validations(num_coeff)
-    den_coeff = st.text_input('Coeficientes do **Denominador A** :',key='rst_inc_den_coeff',help=help_text,placeholder='1, a1, a2, ...')
-    coefficients_validations(den_coeff)
-    
-    
-    tau_ml_input = st.number_input(
-        'Constante de Tempo em Malha fechada (s):',
-        value = 0.5,        # valor sugerido inicial
-        min_value = 0.01,   # valor mínimo
-        step = 0.01,        # passo de incremento
-        key = 'rst_inc_tau_ml'
-    )
-
-    
-    pid_structure = st.selectbox(
-        'Selecione a estrutura de controle:',
-        ('RST Incremental Puro', 'I + PD', 'PI + D', 'PID Ideal', 'PID Paralelo'),
-        key='rst_pid_structure',
-        help='Selecione a lei de controle. As estruturas PID usam os parâmetros RST (s0, s1, t0) para calcular os ganhos.'
-    )
-
-    delay_checkbox_col, delay_input_col = st.columns(2)
-    with delay_checkbox_col:
-        delay_checkbox=st.checkbox('Atraso de Transporte?', key='rst_inc_delay_checkbox')
-
-    with delay_input_col:
-        if delay_checkbox:
-            delay_input = st.number_input(label='delay',key='rst_inc_delay_input',label_visibility='collapsed')
-
-    reference_number = st.radio('Quantidade de referências',['Única','Múltiplas'],horizontal=True,key='rst_inc_siso_reference_number')
-   
-    if reference_number == 'Única':
-        rst_inc_single_reference = st.number_input(
-        'Referência:', value=50, step=1, min_value=0, max_value=90, key='rst_inc_siso_single_reference')
-    else:
-        col21, col22, col23 = st.columns(3)
-        with col23:
-            rst_inc_siso_multiple_reference3 = st.number_input(
-                'Referência 3:', value=30.0, step=1.0, min_value=0.0, max_value=90.0, key='siso_rst_inc_multiple_reference3')
-        with col22:
-            rst_inc_siso_multiple_reference2 = st.number_input(
-                'Referência 2:', value=30.0, step=1.0, min_value=0.0, max_value=90.0, key='siso_rst_inc_multiple_reference2')
-        with col21:
-            rst_inc_siso_multiple_reference1 = st.number_input(
-                'Referência 1:', value=30.0, step=1.0, min_value=0.0, max_value=90.0, key='siso_rst_inc_multiple_reference1')
-        
-        changeReferenceCol1, changeReferenceCol2 = st.columns(2)
-
-        with changeReferenceCol2:
-            siso_change_ref_instant3 = st.number_input(
-                'Instante da referência 3 (s):', value=calculate_time_limit()*3/4, step=0.1, min_value=0.0, max_value=calculate_time_limit(), key='siso_change_ref_instant3')
-        
-        with changeReferenceCol1:
-            default_instante_2 = siso_change_ref_instant3 / 2.0
-            siso_change_ref_instant2 = st.number_input(
-                'Instante da referência 2 (s):', 
-                value=default_instante_2, 
-                step=1.0, 
-                min_value=0.0, 
-                max_value=siso_change_ref_instant3, 
-                key='siso_change_ref_instant2')
-
-    if st.button('Iniciar', type='primary', key='rst_inc_siso_button'):
-        
-        # VALIDAÇÃO DE CAMPOS VAZIOS NA VIEW
-        if not num_coeff or not den_coeff:
-            st.error("Por favor, preencha os Coeficientes do Numerador e Denominador.")
-            return
-
-        if reference_number == 'Única':
-            rstControlProcessIncrementalSISO(
-                transfer_function_type=transfer_function_type, 
-                num_coeff=num_coeff, 
-                den_coeff=den_coeff, 
-                tau_ml_input=tau_ml_input, 
-                pid_structure=pid_structure,
-                rst_single_reference=rst_inc_single_reference,
-                rst_siso_multiple_reference2=rst_inc_single_reference,
-                rst_siso_multiple_reference3=rst_inc_single_reference
-            )
-      
-        elif reference_number == 'Múltiplas':
-           rstControlProcessIncrementalSISO(
-               transfer_function_type=transfer_function_type,
-               num_coeff=num_coeff,
-               den_coeff=den_coeff,
-               tau_ml_input=tau_ml_input, 
-               pid_structure=pid_structure,
-               rst_single_reference=rst_inc_siso_multiple_reference1, 
-               rst_siso_multiple_reference2=rst_inc_siso_multiple_reference2, 
-               rst_siso_multiple_reference3=rst_inc_siso_multiple_reference3, 
-               change_ref_instant2=siso_change_ref_instant2,
-               change_ref_instant3=siso_change_ref_instant3
-            )
-
-# --- FORMULÁRIO DO RST ADAPTATIVO ---
-def rst_adaptive_siso_tab_form():
-    
-    st.write('#### Modelo Inicial para Estimação (B/A)')
-    
-    transfer_function_type = st.radio(
-        '**Tipo de Função de Transferência**',
-        ['Continuo','Discreto'],
-        horizontal=True,
-        key='rst_adp_transfer_function_type'
-    )
-    
-    help_text = 'Valores decimais como **0.9** ou **0.1, 0.993**. Para múltiplos valores, vírgula é necessário.'
-    
-    num_coeff = st.text_input(
-        'Coeficientes do **Numerador B** :',
-        key='rst_adp_num_coeff',
-        help=help_text,
-        placeholder='b0, b1, ...'
-    )
-    coefficients_validations(num_coeff)
-    
-    den_coeff = st.text_input(
-        'Coeficientes do **Denominador A** :',
-        key='rst_adp_den_coeff',
-        help=help_text,
-        placeholder='1, a1, a2, ...'
-    )
-    coefficients_validations(den_coeff)
-
-    st.write('**Parâmetros Iniciais do Estimador (MQR):**')
-    
-    p0_exponent = st.number_input(
-        'Expoente de P(0) (10^x)', 
-        value=4.0, 
-        step=1.0, 
-        key='rst_adp_p0_exponent', 
-        help="Valor do expoente 'x' para calcular P(0) = 10^x. Ex: 4 -> P(0) = 10000."
-    )
-
-    st.write('**Constante de Tempo de malha fechada desejada (tau):**')
-    tau_ml_input = st.number_input(
-        'Constante de Tempo em Malha fechada (s):',
-        value = 0.5,
-        min_value = 0.01,
-        step = 0.01,
-        key = 'rst_adp_tau_ml'
-    )
-
-    st.write('**Estrutura do Controlador (Sintonia PID via RST):**')
-    pid_structure = st.selectbox(
-        'Selecione a estrutura de controle:',
-        ('RST Incremental Puro', 'I + PD', 'PI + D', 'PID Ideal', 'PID Paralelo'),
-        key='rst_adp_pid_structure',
-        help='Selecione a lei de controle. Os ganhos serão adaptados a cada passo.'
-    )
-
-    reference_number = st.radio('Quantidade de referências',['Única','Múltiplas'],horizontal=True,key='rst_adp_siso_reference_number')
-    
-    if reference_number == 'Única':
-        rst_adp_single_reference = st.number_input(
-        'Referência:', value=50, step=1, min_value=0, max_value=90, key='rst_adp_siso_single_reference')
-    else:
-        col21, col22, col23 = st.columns(3)
-        with col23:
-            rst_adp_multiple_reference3 = st.number_input(
-                'Referência 3:', value=30.0, step=1.0, min_value=0.0, max_value=90.0, key='siso_rst_adp_multiple_reference3')
-        with col22:
-            rst_adp_multiple_reference2 = st.number_input(
-                'Referência 2:', value=30.0, step=1.0, min_value=0.0, max_value=90.0, key='siso_rst_adp_multiple_reference2')
-        with col21:
-            rst_adp_multiple_reference1 = st.number_input(
-                'Referência 1:', value=30.0, step=1.0, min_value=0.0, max_value=90.0, key='siso_rst_adp_multiple_reference1')
-        
-        changeReferenceCol1, changeReferenceCol2 = st.columns(2)
-
-        with changeReferenceCol2:
-            siso_change_ref_instant3 = st.number_input(
-                'Instante da referência 3 (s):', value=calculate_time_limit()*3/4, step=0.1, min_value=0.0, max_value=calculate_time_limit(), key='siso_adp_change_ref_instant3')
-
-        with changeReferenceCol1:
-            default_instante_2 = siso_change_ref_instant3 / 2.0
-            siso_change_ref_instant2 = st.number_input(
-                'Instante da referência 2 (s):', 
-                value=default_instante_2, 
-                step=1.0, 
-                min_value=0.0, 
-                max_value=siso_change_ref_instant3, 
-                key='siso_adp_change_ref_instant2')
-
-    if st.button('Iniciar', type='primary', key='rst_adp_siso_button'):
-        
-        if num_coeff == '' or den_coeff == '':
-            st.error("FALHA (Front-end): Coeficientes do Modelo Inicial (A ou B) estão vazios.")
-            return
-
-        sampling_time = get_session_variable('sampling_time')
-        if sampling_time is None:
-            st.error("FALHA (Front-end): Tempo de amostragem não definido na Sidebar.")
-            return
-
-        A_coeff_all, B_coeff_all = convert_tf_2_discrete(num_coeff, den_coeff, transfer_function_type)
-        
-        if A_coeff_all.size < 2 or B_coeff_all.size < 1:
-            st.error(f'FALHA (Front-end): O modelo inicial (A={A_coeff_all}, B={B_coeff_all}) não é de 1ª ordem.')
-            return
+            st.markdown("### Saída do Processo (Nível)")
             
-        a1_initial = A_coeff_all[1]
-        b0_initial = B_coeff_all[0]
-        
-        p0_initial = 10.0 ** p0_exponent
-        
-        if reference_number == 'Única':
-            rstControlProcessAdaptiveSISO(
-                tau_ml_input=tau_ml_input, 
-                pid_structure=pid_structure,
-                a1_initial=a1_initial,
-                b0_initial=b0_initial,
-                p0_initial=p0_initial,
-                rst_single_reference=rst_adp_single_reference,
-                rst_siso_multiple_reference2=rst_adp_single_reference, 
-                rst_siso_multiple_reference3=rst_adp_single_reference
+            df_out = dataframeToPlot('process_output_sensor', 'Process Output', 'reference_input')
+            
+            # Gráfico 1: Otimizado para impressão
+            chart1 = alt.Chart(df_out).mark_line().encode(
+                x=alt.X('Time (s)', title='Tempo (s)'),
+                y=alt.Y('Process Output', title='Nível (cm)'),
+                color=alt.value('#1f77b4')
+            ).properties(
+                width=1050, 
+                height=300 
             )
-      
-        elif reference_number == 'Múltiplas':
-            rstControlProcessAdaptiveSISO(
-                tau_ml_input=tau_ml_input, 
-                pid_structure=pid_structure,
-                a1_initial=a1_initial,
-                b0_initial=b0_initial,
-                p0_initial=p0_initial,
-                rst_single_reference=rst_adp_multiple_reference1, 
-                rst_siso_multiple_reference2=rst_adp_multiple_reference2, 
-                rst_siso_multiple_reference3=rst_adp_multiple_reference3, 
-                change_ref_instant2=siso_change_ref_instant2,
-                change_ref_instant3=siso_change_ref_instant3
-            )
+
+            if 'Reference' in df_out.columns:
+                line_ref = alt.Chart(df_out).mark_line(strokeDash=[5,5], color='red').encode(
+                    x='Time (s)', y='Reference'
+                )
+                chart1 = chart1 + line_ref
+            
+            st.altair_chart(chart1, use_container_width=False)
+
+            st.markdown("<div style='height: 5px;'></div>", unsafe_allow_html=True)
+
+            if get_session_variable('control_signal_1'):
+                st.markdown("### Sinal de Controle (Tensão)")
+                control_signal_with_elapsed_time = datetime_obj_to_elapsed_time('control_signal_1')
+                df_ctrl = dictionary_to_pandasDataframe(control_signal_with_elapsed_time, 'Control Signal 1')
+                
+                # Gráfico 2
+                chart2 = alt.Chart(df_ctrl).mark_line().encode(
+                    x=alt.X('Time (s)', title='Tempo (s)'),
+                    y=alt.Y('Control Signal 1', title='Tensão (V)'),
+                    color=alt.value('#2ca02c')
+                ).properties(
+                    width=1050, 
+                    height=250
+                )
+                
+                st.altair_chart(chart2, use_container_width=False)
+
+    else:
+        # ===================================================
+        #           MODO NORMAL (PAINEL DE OPERAÇÃO)
+        # ===================================================
+        graphics_col, config_col = st.columns([0.7, 0.3])
+
+        # --- Coluna da Direita: Configurações ---
+        with config_col:
+            st.write('### Configurações')
+            # Tabs mantidas conforme seu código original
+            inc_tab, adp_tab = st.tabs(["RST Incremental", "RST Adaptativo"])       
+            
+            with inc_tab:
+                rst_incremental_siso_tab_form()           
+            with adp_tab:
+                rst_adaptive_siso_tab_form()
+
+        # --- Coluna da Esquerda: Gráficos e Índices ---
+        with graphics_col:
+            y_max = get_session_variable('saturation_max_value')
+            y_min = get_session_variable('saturation_min_value')
+            
+            has_data = get_session_variable('process_output_sensor')
+
+            if has_data:
+                # 1. Gráficos
+                df_out = dataframeToPlot('process_output_sensor', 'Process Output', 'reference_input')
+                st.subheader('Saída do Processo (Nível)')
+                altair_plot_chart_validation(df_out, y_max=35.0, y_min=0.0,
+                                             x_column='Time (s)', y_column=['Reference', 'Process Output'])    
+            
+                if get_session_variable('control_signal_1'):
+                    st.subheader('Sinal de Controle (Tensão)')
+                    control_signal_with_elapsed_time = datetime_obj_to_elapsed_time('control_signal_1')
+                    df_ctrl = dictionary_to_pandasDataframe(control_signal_with_elapsed_time, 'Control Signal 1')
+                    altair_plot_chart_validation(df_ctrl, control=True, y_max=y_max, y_min=y_min,
+                                                 x_column='Time (s)', y_column='Control Signal 1', height=250)
+
+                # 2. Índices de Desempenho
+                st.divider()
+                st.write('### Índices de Desempenho')
+                c1, c2 = st.columns(2)
+                with c1: st.metric("IAE (Erro Absoluto)", f"{val_iae:.4f}")
+                with c2: st.metric("TVC (Variação Controle)", f"{val_tvc:.4f}")
+                
+                # 3. TABELA DE SINTONIA CALCULADA (Lógica Robusta)
+                rst_params = {}
+                
+                # Busca parâmetros salvos na sessão (similar ao GPC)
+                all_params = get_session_variable('controller_parameters')
+                if all_params and isinstance(all_params, dict) and 'rst_calculated_params' in all_params:
+                    rst_params = all_params['rst_calculated_params']
+                elif 'controller_parameters' in st.session_state and 'rst_calculated_params' in st.session_state['controller_parameters']:
+                    rst_params = st.session_state['controller_parameters']['rst_calculated_params']
+
+                if rst_params:
+                    st.divider()
+                    st.write("### Sintonia Calculada (PID Equivalente)")
+                    
+                    # Ordem de prioridade para exibição
+                    keys_order = ['Kc', 'Ki', 'Kd', 'Tau_MF', 'T0']
+                    data_display = []
+                    
+                    for k in keys_order:
+                        if k in rst_params:
+                            val = rst_params[k]
+                            if isinstance(val, float): val_str = f"{val:.4f}"
+                            else: val_str = str(val)
+                            
+                            label_map = {
+                                'Kc': 'Ganho Proporcional (Kc)',
+                                'Ki': 'Ganho Integral (Ki)',
+                                'Kd': 'Ganho Derivativo (Kd)',
+                                'Tau_MF': 'Tau Malha Fechada (s)',
+                                'T0': 'Rastreamento (T0)'
+                            }
+                            data_display.append({"Parâmetro": label_map.get(k, k), "Valor": val_str})
+                    
+                    if data_display:
+                        st.table(pd.DataFrame(data_display))
+                    
+            else:
+                st.info("Aguardando execução da simulação para exibir resultados.")
+
+
+def rst_incremental_siso_tab_form():
+    # 1. Modelo
+    st.markdown("#### 1. Modelo da Planta")
+    tf_type = st.radio('Domínio:', ['Continuo', 'Discreto'], horizontal=True, key='rst_inc_tf_type')
+    num = st.text_input('Numerador:', key='rst_inc_num', help='Ex: 5.43', placeholder='5.43')
+    den = st.text_input('Denominador:', key='rst_inc_den', help='Ex: 123, 1', placeholder='123, 1')
+    
+    # 2. Sintonia
+    st.markdown("#### 2. Sintonia")
+    tau_mf = st.number_input('Tau Malha Fechada (s):', value=5.0, min_value=0.1, step=0.5, key='rst_inc_tau')
+    
+    # 3. Estrutura
+    st.markdown("#### 3. Estrutura")
+    pid_struct = st.selectbox('Tipo:', ('RST Incremental Puro', 'I + PD', 'PI + D', 'PID Ideal', 'PID Paralelo'), key='rst_inc_struct')
+
+    # 4. Referência
+    st.markdown("#### 4. Referência")
+    ref_type = st.radio('Modo:', ['Única', 'Múltiplas'], horizontal=True, key='rst_inc_ref_mode')
+    
+    if ref_type == 'Única':
+        ref1 = st.number_input('Set-point (cm):', value=15.0, key='rst_inc_ref1')
+        ref2, ref3 = ref1, ref1
+        t2, t3 = 1.0, 1.0
+    else:
+        c1, c2, c3 = st.columns(3)
+        with c1: ref1 = st.number_input('Ref 1:', value=10.0, key='rst_inc_mr1')
+        with c2: ref2 = st.number_input('Ref 2:', value=20.0, key='rst_inc_mr2')
+        with c3: ref3 = st.number_input('Ref 3:', value=15.0, key='rst_inc_mr3')
+        
+        limit = calculate_time_limit()
+        c4, c5 = st.columns(2)
+        with c4: t2 = st.number_input('Troca 1 (s):', value=limit*0.33, key='rst_inc_t2')
+        with c5: t3 = st.number_input('Troca 2 (s):', value=limit*0.66, key='rst_inc_t3')
+
+    # Botão
+    st.markdown("---")
+    if st.button('Iniciar Incremental', type='primary', use_container_width=True):
+        if not num or not den: return st.error("Defina o modelo.")
+        rstControlProcessIncrementalSISO(tf_type, num, den, tau_mf, pid_struct, ref1, ref2, ref3, t2, t3)
+        st.rerun()
+
+def rst_adaptive_siso_tab_form():
+    # 1. Estimador (Modelo Inicial)
+    st.markdown("#### 1. Modelo Inicial (Estimador)")
+    st.caption("Define os parâmetros iniciais (a1, b0) do RLS.")
+    
+    # PADRONIZADO: Entradas iguais ao modo incremental
+    tf_type = st.radio('Domínio:', ['Continuo', 'Discreto'], horizontal=True, key='rst_adp_tf_type')
+    num = st.text_input('Numerador:', key='rst_adp_num', help='Ex: 5.43', placeholder='5.43')
+    den = st.text_input('Denominador:', key='rst_adp_den', help='Ex: 123, 1', placeholder='123, 1')
+    
+    p0_val = st.number_input('P(0) Covariância:', value=1000.0, key='rst_adp_p0')
+
+    # 2. Sintonia
+    st.markdown("#### 2. Sintonia")
+    tau_mf = st.number_input('Tau Malha Fechada (s):', value=5.0, min_value=0.1, key='rst_adp_tau')
+
+    # 3. Estrutura
+    st.markdown("#### 3. Estrutura")
+    pid_struct = st.selectbox('Tipo:', ('RST Incremental Puro', 'I + PD', 'PI + D', 'PID Ideal', 'PID Paralelo'), key='rst_adp_struct')
+
+    # 4. Referência
+    st.markdown("#### 4. Referência")
+    ref_type = st.radio('Modo:', ['Única', 'Múltiplas'], horizontal=True, key='rst_adp_ref_mode')
+    
+    if ref_type == 'Única':
+        ref1 = st.number_input('Set-point (cm):', value=15.0, key='rst_adp_ref1')
+        ref2, ref3 = ref1, ref1
+        t2, t3 = 1.0, 1.0
+    else:
+        c1, c2, c3 = st.columns(3)
+        with c1: ref1 = st.number_input('Ref 1:', value=10.0, key='rst_adp_mr1')
+        with c2: ref2 = st.number_input('Ref 2:', value=20.0, key='rst_adp_mr2')
+        with c3: ref3 = st.number_input('Ref 3:', value=15.0, key='rst_adp_mr3')
+        limit = calculate_time_limit()
+        c4, c5 = st.columns(2)
+        with c4: t2 = st.number_input('Troca 1 (s):', value=limit*0.33, key='rst_adp_t2')
+        with c5: t3 = st.number_input('Troca 2 (s):', value=limit*0.66, key='rst_adp_t3')
+
+    # Botão
+    st.markdown("---")
+    if st.button('Iniciar Adaptativo', type='primary', use_container_width=True):
+        if not num or not den: return st.error("Defina o modelo inicial.")
+        rstControlProcessAdaptiveSISO(tf_type, num, den, tau_mf, pid_struct, p0_val, ref1, ref2, ref3, t2, t3)
+        st.rerun()

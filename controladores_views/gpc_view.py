@@ -1,142 +1,275 @@
 import streamlit as st
+import pandas as pd
+import altair as alt
 from formatterInputs import *
 from connections import *
 from session_state import *
 from controllers_process.validations_functions import *
-# Importa apenas as funções SISO
-from controllers_process.gpc_controller_process import gpcControlProcessSISO, gpcPidControlProcessSISO
+from controllers_process.gpc_controller_process import gpcControlProcessSISO
 
 def calculate_time_limit():
-    sim_time = get_session_variable('simulation_time')
-    return sim_time if sim_time is not None else 60.0
+    try:
+        sim_time = get_session_variable('simulation_time')
+        return sim_time if sim_time is not None else 60.0
+    except:
+        return 60.0
 
 def gpc_Controller_Interface():
-    st.header('Controlador Preditivo Generalizado (GPC)')
-    graphics_col, gpc_config_col = st.columns([0.7, 0.3])
+    # Cabeçalho padrão (Será escondido na impressão)
+    st.header('Controle Preditivo Generalizado (GPC)')
 
-    with gpc_config_col:
-        st.write('### Configurações do Controlador')
-        
-        # Removemos as abas sisoSystemTab e mimoSystemTab
-        st.write('#### Configuração do Sistema (SISO)')
-        gpc_siso_tab_form() # Chamamos o formulário SISO diretamente
+    # --- 1. Recuperação de Dados ---
+    # Recupera métricas calculadas no backend
+    val_iae = get_session_variable('iae_metric')
+    val_tvc = get_session_variable('tvc_1_metric')
 
-    with graphics_col:
-        y_max = get_session_variable('saturation_max_value')
-        y_min = get_session_variable('saturation_min_value')
+    if val_iae is None: val_iae = 0.0
+    if val_tvc is None: val_tvc = 0.0
 
+    # --- 2. Checkbox para Modo de Impressão ---
+    modo_relatorio = st.checkbox("🖨️ Modo Impressão (PDF para TCC)", value=False, key='print_mode_gpc')
+
+    if modo_relatorio:
+        # ===================================================
+        #           MODO RELATÓRIO (IMPRESSÃO PDF)
+        # ===================================================
+        st.markdown("""
+            <style>
+                @media print {
+                    /* 1. Configuração da Página: Paisagem A4 */
+                    @page { 
+                        size: A4 landscape; 
+                        margin: 5mm; 
+                    }
+                    
+                    /* 2. LIMPEZA TOTAL (Esconde Interface) */
+                    [data-testid="stSidebar"], header, footer, .stDeployButton, [data-testid="stToolbar"] {display: none !important;}
+                    .stButton, .stCheckbox, .stSelectbox, .stSlider, .stRadio, .stNumberInput, .stTextInput {display: none !important;}
+                    .stTabs, [data-baseweb="tab-list"], iframe, div[data-testid="stIFrame"] {display: none !important;}
+                    
+                    /* Esconde Títulos e Logos do App */
+                    h1, h2, [data-testid="stImage"], img { display: none !important; }
+                    
+                    /* 3. LAYOUT COMPACTO */
+                    .block-container {
+                        padding: 0 !important;
+                        margin: 0 !important;
+                        max-width: 100% !important;
+                        width: 100% !important;
+                    }
+                    .stApp {background-color: white !important;}
+                    
+                    /* Remove espaçamentos verticais do Streamlit */
+                    div[data-testid="stVerticalBlock"] { gap: 0.2rem !important; }
+                    
+                    /* 4. GARANTIA DE NÃO-QUEBRA E RESOLUÇÃO */
+                    .element-container {
+                        break-inside: avoid !important;
+                        page-break-inside: avoid !important;
+                    }
+                    
+                    canvas {
+                        max-width: 100% !important;
+                        width: 100% !important;
+                        height: auto !important;
+                        display: block !important;
+                    }
+                    
+                    /* Garante que títulos h3 fiquem próximos aos gráficos */
+                    h3 { margin-bottom: 0px !important; margin-top: 10px !important; font-size: 16px !important;}
+                }
+            </style>
+        """, unsafe_allow_html=True)
+
+        # --- GRÁFICOS DO RELATÓRIO ---
         if get_session_variable('process_output_sensor'):
-            process_output_dataframe = dataframeToPlot('process_output_sensor','Process Output','reference_input')
-            st.subheader('Resposta do Sistema')
-            altair_plot_chart_validation(process_output_dataframe,
-                                         y_max = y_max,y_min = y_min,
-                                         x_column = 'Time (s)', y_column = ['Reference','Process Output'])    
-        
-        st.subheader('Sinal de Controle')
-        if get_session_variable('control_signal_1'):
-            control_signal_with_elapsed_time = datetime_obj_to_elapsed_time('control_signal_1')
-            control_signal_1_dataframe = dictionary_to_pandasDataframe(control_signal_with_elapsed_time,'Control Signal 1')
-            altair_plot_chart_validation(control_signal_1_dataframe,control= True,
-                                         y_max = y_max,y_min = y_min,
-                                         x_column = 'Time (s)', y_column = 'Control Signal 1',
-                                         height=250)
+            st.markdown("### Saída do Processo (Nível)")
+            
+            df_out = dataframeToPlot('process_output_sensor', 'Process Output', 'reference_input')
+            
+            # Gráfico 1: Otimizado para impressão
+            chart1 = alt.Chart(df_out).mark_line().encode(
+                x=alt.X('Time (s)', title='Tempo (s)'),
+                y=alt.Y('Process Output', title='Nível (cm)'),
+                color=alt.value('#1f77b4')
+            ).properties(
+                width=1050, 
+                height=300 
+            )
 
-    st.write('### Índices de Desempenho')
-    iae_col, tvc_col = st.columns([0.2,0.8])
-    with iae_col:
-        iae_metric_validation()
-    with tvc_col:
-        tvc1_validation()
+            if 'Reference' in df_out.columns:
+                line_ref = alt.Chart(df_out).mark_line(strokeDash=[5,5], color='red').encode(
+                    x='Time (s)', y='Reference'
+                )
+                chart1 = chart1 + line_ref
+            
+            st.altair_chart(chart1, use_container_width=False)
+
+            st.markdown("<div style='height: 5px;'></div>", unsafe_allow_html=True)
+
+            if get_session_variable('control_signal_1'):
+                st.markdown("### Sinal de Controle (Tensão)")
+                control_signal_with_elapsed_time = datetime_obj_to_elapsed_time('control_signal_1')
+                df_ctrl = dictionary_to_pandasDataframe(control_signal_with_elapsed_time, 'Control Signal 1')
+                
+                # Gráfico 2
+                chart2 = alt.Chart(df_ctrl).mark_line().encode(
+                    x=alt.X('Time (s)', title='Tempo (s)'),
+                    y=alt.Y('Control Signal 1', title='Tensão (V)'),
+                    color=alt.value('#2ca02c')
+                ).properties(
+                    width=1050, 
+                    height=250
+                )
+                
+                st.altair_chart(chart2, use_container_width=False)
+
+    else:
+        # ===================================================
+        #           MODO NORMAL (PAINEL DE OPERAÇÃO)
+        # ===================================================
+        graphics_col, config_col = st.columns([0.7, 0.3])
+
+        # --- Coluna da Direita: Configurações ---
+        with config_col:
+            st.write('### Configurações')
+            gpc_siso_tab_form()
+
+        # --- Coluna da Esquerda: Gráficos e Índices ---
+        with graphics_col:
+            y_max = get_session_variable('saturation_max_value')
+            y_min = get_session_variable('saturation_min_value')
+            
+            has_data = get_session_variable('process_output_sensor')
+
+            if has_data:
+                # 1. Gráficos
+                df_out = dataframeToPlot('process_output_sensor', 'Process Output', 'reference_input')
+                st.subheader('Saída do Processo (Nível)')
+                altair_plot_chart_validation(df_out, y_max=35.0, y_min=0.0,
+                                             x_column='Time (s)', y_column=['Reference', 'Process Output'])    
+            
+                if get_session_variable('control_signal_1'):
+                    st.subheader('Sinal de Controle (Tensão)')
+                    control_signal_with_elapsed_time = datetime_obj_to_elapsed_time('control_signal_1')
+                    df_ctrl = dictionary_to_pandasDataframe(control_signal_with_elapsed_time, 'Control Signal 1')
+                    altair_plot_chart_validation(df_ctrl, control=True, y_max=y_max, y_min=y_min,
+                                                 x_column='Time (s)', y_column='Control Signal 1', height=250)
+
+                # 2. Índices de Desempenho (Abaixo dos gráficos)
+                st.divider()
+                st.write('### Índices de Desempenho')
+                c1, c2 = st.columns(2)
+                with c1: st.metric("IAE (Erro Absoluto)", f"{val_iae:.4f}")
+                with c2: st.metric("TVC (Variação Controle)", f"{val_tvc:.4f}")
+                
+                # 3. TABELA DE SINTONIA CALCULADA (LÓGICA ROBUSTA)
+                # Tenta buscar parâmetros de múltiplas fontes para garantir exibição
+                gpc_params = {}
+                
+                # Tentativa 1: Via get_session_variable
+                all_params = get_session_variable('controller_parameters')
+                if all_params and isinstance(all_params, dict) and 'gpc_calculated_params' in all_params:
+                    gpc_params = all_params['gpc_calculated_params']
+                
+                # Tentativa 2: Acesso direto ao session_state (Fallback)
+                elif 'controller_parameters' in st.session_state and 'gpc_calculated_params' in st.session_state['controller_parameters']:
+                    gpc_params = st.session_state['controller_parameters']['gpc_calculated_params']
+
+                # Se encontrou parâmetros, exibe a tabela
+                if gpc_params:
+                    st.divider()
+                    st.write("### Sintonia Calculada (PID Equivalente)")
+                    
+                    keys_order = ['Kc', 'Ki', 'Kd', 'Ny', 'Nu', 'Lambda']
+                    data_display = []
+                    
+                    for k in keys_order:
+                        if k in gpc_params:
+                            val = gpc_params[k]
+                            # Formatação condicional
+                            if isinstance(val, float):
+                                val_str = f"{val:.4f}"
+                            else:
+                                val_str = str(val)
+                            
+                            # Tradução dos labels para tabela
+                            label_map = {
+                                'Kc': 'Ganho Proporcional (Kc)',
+                                'Ki': 'Ganho Integral (Ki)',
+                                'Kd': 'Ganho Derivativo (Kd)',
+                                'Ny': 'Horizonte Predição (Ny)',
+                                'Nu': 'Horizonte Controle (Nu)',
+                                'Lambda': 'Fator de Peso (λ)'
+                            }
+                            
+                            data_display.append({
+                                "Parâmetro": label_map.get(k, k),
+                                "Valor": val_str
+                            })
+                    
+                    if data_display:
+                        df_gpc = pd.DataFrame(data_display)
+                        st.table(df_gpc)
+                    
+            else:
+                # Placeholder
+                st.info("Aguardando execução da simulação para exibir resultados.")
+
 
 def gpc_siso_tab_form():
+    # 1. Modelo da Planta
+    st.markdown("#### 1. Modelo da Planta")
+    tf_type = st.radio('Domínio:', ['Continuo', 'Discreto'], horizontal=True, key='gpc_tf_type')
+    num = st.text_input('Numerador:', key='gpc_num', placeholder='5.43')
+    den = st.text_input('Denominador:', key='gpc_den', placeholder='123, 1')
+
+    # 2. Sintonia (Apenas Ny, Nu, Lambda)
+    st.markdown("#### 2. Sintonia")
     
-    gpc_controller_type = st.radio('**Tipo de Controlador GPC**',['GPC Clássico','GPC-PID'],horizontal=True,key='gpc_siso_controller_type')
+    # Ny e Nu lado a lado
+    c1, c2 = st.columns(2)
+    with c1: 
+        Ny = st.number_input('Ny (Predição):', value=10, min_value=1, key='gpc_ny')
+    with c2: 
+        Nu = st.number_input('Nu (Controle):', value=3, min_value=1, key='gpc_nu')
     
-    transfer_function_type = st.radio('**Tipo de Função de Transferência**',['Continuo','Discreto'],horizontal=True,key='gpc_siso_transfer_function_type')
-
-    st.write(' **Função de Transferência do Modelo:**')
-    help_text = 'Valores decimais como **0.9** ou **0.1, 0.993**. Para múltiplos valores, vírgula é necessário.'
-    num_coeff = st.text_input('Coeficientes **Numerador**:',key='siso_gpc_num_coeff',help=help_text,placeholder='7.737')
-    coefficients_validations(num_coeff)
-    den_coeff = st.text_input('Coeficientes **Denominador**:',key='siso_gpc_den_coeff',help=help_text,placeholder='0.6 , 1')
-    coefficients_validations(den_coeff)
-
-    delay_checkbox_col, delay_input_col = st.columns(2)
-    with delay_checkbox_col:
-        delay_checkbox=st.checkbox('Atraso de Transporte?',key='siso_gpc_delay_checkbox')
+    lmb = st.number_input('Lambda (Peso):', value=1.0, step=0.1, key='gpc_lambda')
     
-    with delay_input_col:
-        if delay_checkbox:
-            delay_input = st.number_input(label='delay',label_visibility='collapsed',key='siso_gpc_delay_input')
+    # Seleção da Estrutura de Controle (PID Structure)
+    pid_struct = st.selectbox(
+        'Estrutura de Controle:', 
+        ['GPC Padrão', 'I + PD', 'PI + D', 'PID Ideal', 'PID Paralelo'], 
+        key='gpc_pid_structure'
+    )
+
+    # N1 fixo internamente (padrão 1)
+    n1_fixed = 1
+
+    # 3. Referência
+    st.markdown("#### 3. Referência")
+    ref_type = st.radio('Modo:', ['Única', 'Múltiplas'], horizontal=True, key='gpc_ref_mode')
     
-    st.write('**Parâmetros de Sintonia GPC:**')
-    ny_col, nu_col, lambda_col = st.columns(3)
-    with ny_col:
-        gpc_siso_ny = st.number_input('$N_y$', value=10, step=1, min_value=1, max_value=100, key='gpc_siso_ny')
-    with nu_col:
-        gpc_siso_nu = st.number_input('$N_u$', value=3, step=1, min_value=1, max_value=100, key='gpc_siso_nu')
-    with lambda_col:
-        gpc_siso_lambda = st.number_input('$\lambda$', value=0.9, step=0.1, min_value=0.0, max_value=1000.0, key='gpc_siso_lambda',format='%.2f')
-
-    future_inputs_checkbox=st.checkbox('Considerar Referências Futuras?',key='siso_gpc_future_inputs_checkbox')
-    
-    reference_number = st.radio('Quantidade de referências',['Única','Múltiplas'],horizontal=True,key='gpc_siso_reference_number')
-    
-    if reference_number == 'Única':
-        gpc_siso_single_reference = st.number_input(
-        'Referência:', value=50, step=1, min_value=0, max_value=90, key='gpc_siso_single_reference')
-    
-    elif reference_number == 'Múltiplas':
-        col21, col22, col23 = st.columns(3)
-        with col23:
-            gpc_siso_multiple_reference3 = st.number_input(
-                'Referência 3:', value=30.0, step=1.0, min_value=0.0, max_value=90.0, key='gpc_siso_multiple_reference3')
-
-        with col22:
-            gpc_siso_multiple_reference2 = st.number_input(
-                'Referência 2:', value=30.0, step=1.0, min_value=0.0, max_value=90.0, key='gpc_siso_multiple_reference2')
-
-        with col21:
-            gpc_siso_multiple_reference1 = st.number_input(
-                'Referência 1:', value=30.0, step=1.0, min_value=0.0, max_value=90.0, key='gpc_siso_multiple_reference1')
-
-        changeReferenceCol1, changeReferenceCol2 = st.columns(2)
-
-        with changeReferenceCol2:
-            siso_change_ref_instant3 = st.number_input(
-                'Instante da referência 3 (s):', value=calculate_time_limit()*3/4, step=0.1, min_value=0.0, max_value=calculate_time_limit(), key='siso_gpc_change_ref_instant3')
-
-        with changeReferenceCol1:
-            default_instante_2 = siso_change_ref_instant3 / 2.0
-            siso_change_ref_instant2 = st.number_input(
-                'Instante da referência 2 (s):', 
-                value=default_instante_2, 
-                step=1.0, 
-                min_value=0.0, 
-                max_value=siso_change_ref_instant3, 
-                key='siso_gpc_change_ref_instant2')
-
-    if st.button('Iniciar', type='primary', key='gpc_siso_button'):
+    if ref_type == 'Única':
+        ref1 = st.number_input('Set-point (cm):', value=15.0, key='gpc_ref1')
+        ref2, ref3 = ref1, ref1
+        t2, t3 = 1.0, 1.0
+    else:
+        c1, c2, c3 = st.columns(3)
+        with c1: ref1 = st.number_input('Ref 1:', value=10.0, key='gpc_mr1')
+        with c2: ref2 = st.number_input('Ref 2:', value=20.0, key='gpc_mr2')
+        with c3: ref3 = st.number_input('Ref 3:', value=15.0, key='gpc_mr3')
         
-        if gpc_controller_type == 'GPC Clássico':
-            if reference_number == 'Única':
-                gpcControlProcessSISO(transfer_function_type,num_coeff,den_coeff,
-                                    gpc_siso_ny,gpc_siso_nu,gpc_siso_lambda,future_inputs_checkbox,
-                                    gpc_siso_single_reference, gpc_siso_single_reference, gpc_siso_single_reference)
-            
-            elif reference_number == 'Múltiplas':
-                gpcControlProcessSISO(transfer_function_type, num_coeff, den_coeff,gpc_siso_ny, gpc_siso_nu, gpc_siso_lambda, future_inputs_checkbox,gpc_siso_multiple_reference1, gpc_siso_multiple_reference2, gpc_siso_multiple_reference3,change_ref_instant2=siso_change_ref_instant2, change_ref_instant3=siso_change_ref_instant3) 
+        limit = calculate_time_limit()
+        c4, c5 = st.columns(2)
+        with c4: t2 = st.number_input('Troca 1 (s):', value=limit*0.33, key='gpc_t2')
+        with c5: t3 = st.number_input('Troca 2 (s):', value=limit*0.66, key='gpc_t3')
+
+    # Botão
+    st.markdown("---")
+    if st.button('Iniciar GPC', type='primary', use_container_width=True):
+        if not num or not den: return st.error("Defina o modelo.")
         
-        elif gpc_controller_type == 'GPC-PID':
-            if reference_number == 'Única':
-                gpcPidControlProcessSISO(transfer_function_type,num_coeff,den_coeff,
-                                    gpc_siso_ny,gpc_siso_nu,gpc_siso_lambda,future_inputs_checkbox,
-                                    gpc_siso_single_reference, gpc_siso_single_reference, gpc_siso_single_reference)
-            
-            elif reference_number == 'Múltiplas':
-                gpcPidControlProcessSISO(transfer_function_type, num_coeff, den_coeff,
-                                    gpc_siso_ny, gpc_siso_nu, gpc_siso_lambda, future_inputs_checkbox,
-                                    gpc_siso_multiple_reference1, gpc_siso_multiple_reference2, gpc_siso_multiple_reference3,
-                                    change_ref_instant2=siso_change_ref_instant2,  # <--- Uso explícito do nome do argumento
-                                    change_ref_instant3=siso_change_ref_instant3)
-# A função gpc_mimo_tab_form() foi removida.
+        # Envia n1_fixed (1) e usa Ny como horizonte de predição (N2), passando pid_structure
+        gpcControlProcessSISO(tf_type, num, den, n1_fixed, Ny, Nu, lmb, ref1, ref2, ref3, t2, t3, pid_structure=pid_struct)
+        st.rerun()

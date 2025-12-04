@@ -1,7 +1,7 @@
 import streamlit as st
 
-
 def loadSessionStates():
+    """Inicializa as variáveis de estado da sessão se ainda não existirem."""
     if 'connected' not in st.session_state:
         st.session_state.connected = {}
 
@@ -11,119 +11,56 @@ def loadSessionStates():
     if 'controller_parameters' not in st.session_state:
         st.session_state.controller_parameters = {}
 
-    if 'sampling_time' not in st.session_state.controller_parameters:
-        st.session_state.controller_parameters['sampling_time'] = 0.1
-
-    if 'samples_number' not in st.session_state.controller_parameters:
-        st.session_state.controller_parameters['samples_number'] = 100
-
-    if 'control_signal_1' not in st.session_state.controller_parameters:
-        st.session_state.controller_parameters['control_signal_1'] = {}
-
-    if 'control_signal_2' not in st.session_state.controller_parameters:
-        st.session_state.controller_parameters['control_signal_2'] = {}
-        
-    if 'reference_input' not in st.session_state.controller_parameters:
-        st.session_state.controller_parameters['reference_input'] = {}
-        
-    if 'saturation_max_value' not in st.session_state.controller_parameters:
-        st.session_state.controller_parameters['saturation_max_value'] = {}
-        
-    if 'saturation_min_value' not in st.session_state.controller_parameters:
-        st.session_state.controller_parameters['saturation_min_value'] = {}
-        
-    if 'process_output_sensor' not in st.session_state.controller_parameters:
-        st.session_state.controller_parameters['process_output_sensor'] = {}
-    
-    if 'iae_metric' not in st.session_state.controller_parameters:
-        st.session_state.controller_parameters['iae_metric'] = 0
-    
-    if 'tvc_1_metric' not in st.session_state.controller_parameters:
-        st.session_state.controller_parameters['tvc_1_metric'] = 0
-        
-    if 'tvc_2_metric' not in st.session_state.controller_parameters:
-        st.session_state.controller_parameters['tvc_2_metric'] = 0
-    # --- ADICIONE ESTE BLOCO ---
-    if 'simulation_time' not in st.session_state.controller_parameters:
-        st.session_state.controller_parameters['simulation_time'] = 100.0 # Define um padrão
-    # --- FIM DO BLOCO ---
-
-session_list = [
-        "samples_number",
-        "sampling_time",
-        "control_signal_1",
-        "control_signal_2",
-        "reference_input",
-        "saturation_max_value",
-        "saturation_min_value",
-        "process_output_sensor",
-        "iae_metric",
-        "tvc_1_metric",
-        "tvc_2_metric"
-        ]
-
-def get_session_variable(variable:str)-> dict|float:
-    """
-    Function to get the session states variables
-
-    Parameters:
-    variable (str):
-        "samples_number",
-        "sampling_time",
-        "control_signal_1",
-        "control_signal_2",
-        "reference_input",
-        "saturation_max_value",
-        "saturation_min_value",
-        "process_output_sensor",
-        "simulation_time"
-    Returns:
-    dict
-    """
-    
-    session_variable = {
-
-        "samples_number":           st.session_state.controller_parameters['samples_number'],
-        "sampling_time":            st.session_state.controller_parameters['sampling_time'],
-        "control_signal_1":         st.session_state.controller_parameters['control_signal_1'],
-        "control_signal_2":         st.session_state.controller_parameters['control_signal_2'],
-        "reference_input":          st.session_state.controller_parameters['reference_input'],
-        "saturation_max_value":     st.session_state.controller_parameters['saturation_max_value'],
-        "saturation_min_value":     st.session_state.controller_parameters['saturation_min_value'],
-        "process_output_sensor":    st.session_state.controller_parameters['process_output_sensor'],
-        "iae_metric":               st.session_state.controller_parameters['iae_metric'],
-        "tvc_1_metric":             st.session_state.controller_parameters['tvc_1_metric'],
-        "tvc_2_metric":             st.session_state.controller_parameters['tvc_2_metric'],
-        # --- ADICIONE ESTA LINHA ---
-        "simulation_time":      st.session_state.controller_parameters['simulation_time']
+    # Dicionário com valores padrões para evitar KeyErrors na inicialização
+    defaults = {
+        'sampling_time': 0.1,
+        'samples_number': 100,
+        'control_signal_1': {},
+        'control_signal_2': {},
+        'reference_input': {},
+        'saturation_max_value': 100.0,
+        'saturation_min_value': 0.0,
+        'process_output_sensor': {},
+        'iae_metric': 0.0,
+        'tvc_1_metric': 0.0,
+        'tvc_2_metric': 0.0,
+        'simulation_time': 60.0,
+        # Variáveis novas adicionadas para evitar erros no IMC e Relatórios
+        'imc_calculated_params': {}, 
+        'IAE_value': 0.0,
+        'TVC_value': 0.0
     }
+
+    # Garante que todas as chaves padrão existam no controller_parameters
+    for key, value in defaults.items():
+        if key not in st.session_state.controller_parameters:
+            st.session_state.controller_parameters[key] = value
+
+def get_session_variable(variable: str):
+    """
+    Retorna o valor de uma variável salva em st.session_state.controller_parameters.
+    Usa .get() para retornar None caso a variável não exista, evitando erro de KeyError.
+    """
+    if 'controller_parameters' in st.session_state:
+        return st.session_state.controller_parameters.get(variable)
+    return None
+
+def set_session_controller_parameter(controller_parameter: str, new_data) -> None:
+    """
+    Define ou atualiza um valor dentro de st.session_state.controller_parameters.
+    """
+    if 'controller_parameters' not in st.session_state:
+        st.session_state.controller_parameters = {}
     
-    return session_variable[variable]
-
-def set_session_controller_parameter(controller_parameter:str, new_data) ->None:
-    """
-    Function to get the session states controller parameters variables
-
-    Parameters:
-    variable (str):
-        "samples_number",
-        "sampling_time",
-        "control_signal_1",
-        "control_signal_2",
-        "reference_input",
-        "saturation_max_value",
-        "saturation_min_value",
-        "process_output_sensor"
-    Returns:
-    None
-    """
     st.session_state.controller_parameters[controller_parameter] = new_data
-   
-   # --- ADICIONE ESTAS FUNÇÕES AO FINAL DE session_state.py ---
+    
+    # Debug opcional: salva erros na raiz para fácil acesso se necessário
+    if controller_parameter == 'debug_error':
+        st.session_state['debug_error'] = new_data
 
 def set_session_variable(key: str, value):
     """
-    Define uma variável no st.session_state (nível raiz).
+    Define uma variável diretamente na raiz do st.session_state.
     """
     st.session_state[key] = value
 
@@ -133,17 +70,3 @@ def clear_session_variable(key: str):
     """
     if key in st.session_state:
         del st.session_state[key]
-
-def set_session_controller_parameter(key: str, value):
-    """
-    Função crucial que o RST e o IMC usam para guardar dados.
-    """
-    # Garante que o dicionário existe
-    if 'controller_parameters' not in st.session_state:
-        st.session_state['controller_parameters'] = {}
-        
-    st.session_state.controller_parameters[key] = value
-    
-    # Se for um erro, guarda também no nível raiz para a interface ver
-    if key == 'debug_error':
-        set_session_variable(key, value)
