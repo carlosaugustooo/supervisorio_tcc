@@ -1,20 +1,19 @@
-# LABVCON v2.0
+# Supervisório de Planta de Nível
 
 ## Descrição
 
-LABVCON v2.0 é uma interface de controle de protótipos de sistemas dinâmicos implementados em Arduino em tempo real. Com ela se pode implementar os controladores **PID**, **IMC** (Internal Model Control), **GMV** (Generalized Minimum Variance) e **GPC** (Generalized Predictive Control) em sistemas SISO (Single Input Single Output). 
+Este projeto consiste em uma interface de supervisão e controle para protótipos de sistemas dinâmicos implementados em Arduino em tempo real. O sistema permite a implementação e análise de controladores avançados como **RST**, **IMC** (Internal Model Control), **GMV** (Generalized Minimum Variance) e **GPC** (Generalized Predictive Control) em sistemas SISO (Single Input Single Output), permitindo tbm a sintonia dos controladores aos modelos PID ideal, PID paralelo, I+PD e PI+D.
 
-O usuário insere o modelo do sistema e o tempo de amostragem, implementa os controladores no sistema e consegue receber os gráficos de resposta, do sinal de controle e índices de Métricas **IAE** e **TVC** para comparar os resultados.
+O usuário insere o modelo do sistema e o tempo de amostragem, implementa os controladores e obtém gráficos de resposta em tempo real, sinal de controle e índices de métricas como **IAE** e **TVC** para comparação de desempenho.
 
 ## Instalação
 
-Para instalar e começar a usar o LABVCON v2.0, siga estas etapas simples:
+Para instalar e começar a usar o supervisório, siga estas etapas:
 
-1. **Clone o repositório para sua máquina local:**
+1. **Clone este repositório (ou baixe os arquivos):**
    ```bash
-   git clone https://github.com/jrneliodias/tcc-prtotipo-python
-    ```
-
+   git clone https://github.com/plantadenivel-supervisorio/supervisorio_tcc
+   ```
 2. **Crie um ambiente virtual (opcional, mas recomendado):**
     ```bash
     python -m venv venv
@@ -36,16 +35,5 @@ Para instalar e começar a usar o LABVCON v2.0, siga estas etapas simples:
 
 5. **Execute o servidor Streamlit do projeto:**
     ```bash
-    streamlit run LABVCON.py
+    streamlit run supervisorio.py
     ```
-
-## Imagens da Interface
-
-### LABVCON modo light
-![interface_light_mode](img/Interface_GMV_3ref.png)
-
-### LABVCON modo dark
-![interface_light_mode](img/interface_gpc.png)
-
-### Video de demonstração
-[![IMAGE ALT TEXT HERE](https://img.youtube.com/vi/iYGOIkJjMlA/0.jpg)](https://www.youtube.com/watch?v=iYGOIkJjMlA)
