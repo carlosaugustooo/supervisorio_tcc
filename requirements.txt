@@ -1,5 +1,9 @@
-control
 streamlit
-streamlit_option_menu
+streamlit-option-menu
+streamlit-extras
 pyserial
-streamlit_extras
+control
+numpy
+pandas
+altair
+matplotlib
